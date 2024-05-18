@@ -3,6 +3,12 @@
   "private": true,
   "sideEffects": false,
   "type": "module",
+  "license": "MIT",
+  "author": "Andy Chung <chung.andy@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gehsekky/webcasino.git"
+  },
   "scripts": {
     "build": "remix vite:build",
     "dev": "remix vite:dev",

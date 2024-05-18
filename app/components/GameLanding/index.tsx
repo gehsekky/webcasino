@@ -24,9 +24,8 @@ const GameLanding = ({ game, gamePlayer } : GameLandingProps) => {
     <>
       <Header title={game.type} />
       <div className="container mx-auto">
-        <div className="hero min-h-screen bg-base-200">
+        <div className="hero min-h-80 bg-base-200">
           <div className="hero-content text-center flex-col">
-            
             {loadGameComponent(game, gamePlayer)}
           </div>
         </div>

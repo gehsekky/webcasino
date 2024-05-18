@@ -42,7 +42,7 @@ export const createGamePlayerRoundForAction = async (gamePlayer : GamePlayer, cu
       throw new Error('deck is empty');
     }
 
-    if (action === 'hit') {
+    if (['hit', 'double down'].indexOf(action) > -1) {
       const popped = deck.pop();
       if (!popped) {
         throw new Error('could not get popped card');

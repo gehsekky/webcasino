@@ -10,6 +10,35 @@ class Card {
     this.rank = rank;
   }
 
+  static getTotal(cards : Card[]) {
+    let sum = 0;
+    let hasAce = false;
+    for (const card of cards) {
+      if (['2', '3', '4', '5', '6', '7', '8', '9'].indexOf(card.rank) > -1) {
+        sum += parseInt(card.rank);
+      } else if (['Jack', 'Queen', 'King'].indexOf(card.rank) > -1) {
+        sum += 10;
+      } else if (card.rank === 'Ace') {
+        if (!hasAce) {
+          sum += 11;
+          hasAce = true;
+        } else {
+          sum += 1;
+        }
+      } else if (card.rank === 'hidden') {
+        sum += 0;
+      } else {
+        throw new Error('unhandled card case while ending game');
+      }
+    }
+
+    if (sum > 21 && hasAce) {
+      sum -= 10;
+    }
+
+    return sum;
+  }
+
   static getTotals(cards : Card[]) : number[] {
     let sum = 0, numAces = 0;
     for (let i = 0; i < cards.length; i++) {
@@ -56,8 +85,8 @@ class Card {
   };
 
   static has21(cards : Card[]) : boolean {
-    const totals = Card.getTotals(cards);
-    if (totals.indexOf(21) !== -1) {
+    const total = Card.getTotal(cards);
+    if (total === 21) {
       return true;
     }
 
@@ -65,13 +94,12 @@ class Card {
   }
 
   static isBust(cards : Card[]) : boolean {
-    const totals = Card.getTotals(cards);
-    for (let i = 0; i < totals.length; i++) {
-      if (totals[i] <= 21) {
-        return false;
-      }
+    const total = Card.getTotal(cards);
+    if (total > 21) {
+      return true;
     }
-    return true;
+
+    return false;
   }
 }
 

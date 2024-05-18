@@ -2,6 +2,7 @@ import { createGamePlayerRoundForAction, updateGamePlayer, type GamePlayerDTO } 
 import Card from 'lib/Card';
 import GamePlayerBet from 'lib/GamePlayerBet';
 import GamePlayerRound from 'lib/GamePlayerRound';
+import MoneyManager from 'lib/MoneyManager';
 import User from 'lib/User';
 
 export type GamePlayerData = {
@@ -29,7 +30,7 @@ class GamePlayer {
     this.hand = (gamePlayerDTO.data as unknown as GamePlayerData).cards;
   }
 
-  getInitialBetAmount() {
+  getBetAmount() {
     if (!this.gamePlayerBets || !this.gamePlayerBets.length) {
       throw new Error('could not access player bets');
     }
@@ -37,8 +38,12 @@ class GamePlayer {
     if (!initialBet) {
       throw new Error('could not get initial player bet');
     }
-
-    return initialBet.amount;
+    const isDoubleDown = this.gamePlayerRounds.some((gamePlayerRound) => gamePlayerRound.action === 'double down');
+    let betAmount = initialBet.amount;
+    if (isDoubleDown) {
+      betAmount += betAmount;
+    }
+    return betAmount;
   }
 
   async submitAction(currentRound: number, action : string) {
@@ -47,20 +52,19 @@ class GamePlayer {
       throw new Error('could not create game player round for action');
     }
 
-    if (action === 'hit') {
+    if (['hit', 'double down'].indexOf(action) > -1) {
       // check for bust and add record if necessary
-      const totals = Card.getTotals(this.hand);
-      if (totals.every((total) => total > 21)) {
+      if (Card.isBust(this.hand)) {
         await createGamePlayerRoundForAction(this, currentRound + 1, 'lose');
-        const bet = this.getInitialBetAmount();
-        this.user.money -= bet;
-        await this.user.save();
+        const bet = this.getBetAmount();
+        await MoneyManager.handleUserTransaction(this.user, 'debit', bet, this);
+      } else if (action === 'double down') {
+        await createGamePlayerRoundForAction(this, currentRound + 1, 'stay');
       }
     } else if (action === 'surrender') {
       await createGamePlayerRoundForAction(this, currentRound + 1, 'lose');
-      const bet = this.getInitialBetAmount();
-      this.user.money -= Math.ceil(bet / 2);
-      await this.user.save();
+      const bet = this.getBetAmount();
+      await MoneyManager.handleUserTransaction(this.user, 'debit', Math.ceil(bet / 2), this);
     }
 
     return gamePlayerRound;

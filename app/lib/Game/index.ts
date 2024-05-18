@@ -4,6 +4,7 @@ import { getUserById } from 'actions/user';
 import Card from 'lib/Card';
 import Deck from 'lib/Deck';
 import GamePlayer from 'lib/GamePlayer';
+import MoneyManager from 'lib/MoneyManager';
 import User from 'lib/User';
 
 export interface GameData {
@@ -49,16 +50,16 @@ class Game {
     // check if dealer has 21
     if (Card.has21(this.data.dealerHand)) {
       for (const gamePlayer of this.gamePlayers) {
-        const totals = Card.getTotals(gamePlayer.hand);
-        const bet = gamePlayer.getInitialBetAmount();
-        if (totals.indexOf(21) > -1) {
+        const total = Card.getTotal(gamePlayer.hand);
+        const bet = gamePlayer.getBetAmount();
+        if (total === 21) {
           // player push
           await gamePlayer.submitAction(1, 'push');
-          // give bet money back to user
-          gamePlayer.user.money = gamePlayer.user.money + bet;
         } else {
           // lose (money is already debit on bet so we don't need to update)
           await gamePlayer.submitAction(1, 'lose');
+          // debit money from user
+          await MoneyManager.handleUserTransaction(gamePlayer.user, 'debit', bet, gamePlayer);
         }
         await gamePlayer.user.save();
       }
@@ -67,57 +68,30 @@ class Game {
     } else {
       for (const gamePlayer of this.gamePlayers) {
         const totals = Card.getTotals(gamePlayer.hand);
-        const bet = gamePlayer.getInitialBetAmount();
+        const bet = gamePlayer.getBetAmount();
         if (totals.indexOf(21) > -1) {
           // player win
           await gamePlayer.submitAction(1, 'win');
-          // give bet money back to user
-          gamePlayer.user.money = gamePlayer.user.money + Math.floor(bet * 1.5);
+          // award user
+          await MoneyManager.handleUserTransaction(gamePlayer.user, 'credit', Math.floor(bet * 1.5), gamePlayer);
         }
         await gamePlayer.user.save();
       }
     }
   }
 
-  countCardTotal(dealerHand : Card[]) {
-    let sum = 0;
-    let hasAce = false;
-    for (const card of dealerHand) {
-      if (['2', '3', '4', '5', '6', '7', '8', '9'].indexOf(card.rank) > -1) {
-        sum += parseInt(card.rank);
-      } else if (['Jack', 'Queen', 'King'].indexOf(card.rank) > -1) {
-        sum += 10;
-      } else if (card.rank === 'Ace') {
-        if (!hasAce) {
-          sum += 11;
-          hasAce = true;
-        } else {
-          sum += 1;
-        }
-      } else {
-        throw new Error('unhandled card case while ending game');
-      }
-    }
-
-    if (sum > 21 && hasAce) {
-      sum -= 10;
-    }
-
-    return sum;
-  }
-
   async endGame() {
     this.data.dealerCardsRevealed = true;
     const dealerHand = this.data.dealerHand;
     let stop = false;
-    let sum = this.countCardTotal(dealerHand);
+    let sum = Card.getTotal(dealerHand);
     while (!stop && sum < 17) {
       const popped = this.deck.cards.pop();
       if (!popped) {
         throw new Error('could not fetch card from deck for dealer');
       }
       dealerHand.push(popped);
-      sum = this.countCardTotal(dealerHand);
+      sum = Card.getTotal(dealerHand);
 
       if (sum > 17) {
         stop = true;
@@ -132,7 +106,7 @@ class Game {
       if (!lastRound) {
         throw new Error('could not get last round for player');
       }
-      const playerTotal = this.countCardTotal(gamePlayer.hand);
+      const playerTotal = Card.getTotal(gamePlayer.hand);
       // if still in game, add win round
       if (['win', 'lose', 'push'].indexOf(lastRound.action) === -1) {
         let gamePlayerRound;
@@ -140,12 +114,10 @@ class Game {
         const user = new User(userDTO);
         if (sum > 21 || sum < playerTotal) {
           gamePlayerRound = await gamePlayer.submitAction(lastRound.round, 'win');
-          user.money += gamePlayer.getInitialBetAmount();
-          await user.save();
+          await MoneyManager.handleUserTransaction(gamePlayer.user, 'credit', gamePlayer.getBetAmount(), gamePlayer);
         } else if (sum > playerTotal) {
           gamePlayerRound = await gamePlayer.submitAction(lastRound.round, 'lose');
-          user.money -= gamePlayer.getInitialBetAmount();
-          await user.save();
+          await MoneyManager.handleUserTransaction(gamePlayer.user, 'debit', gamePlayer.getBetAmount(), gamePlayer);
         } else {
           gamePlayerRound = await gamePlayer.submitAction(lastRound.round, 'push');
         }

@@ -61,6 +61,7 @@ CREATE TABLE public.money_transaction (
   user_id UUID NOT NULL REFERENCES public.user(id),
   game_player_id UUID REFERENCES public.game_player(id),
   type varchar(32) NOT NULL,
+  amount integer NOT NULL,
   note varchar(512),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   created_at timestamp with time zone NOT NULL DEFAULT now(),

@@ -5,6 +5,7 @@ import StartGame from './StartGame';
 import PlayerInfo from './PlayerInfo';
 import { Form } from '@remix-run/react';
 import PlayerOutcome from './PlayerOutcome';
+import GameRoundLog from 'components/BlackJackLanding/GameRoundLog';
 
 type BlackJackLandingProps = {
   game: Game;
@@ -44,13 +45,13 @@ const BlackJackLanding = ({ game, gamePlayer } : BlackJackLandingProps) => {
     return (
       <>
         <div className="text-left">
-          <p className="text-xl">gameId: {game.gameId}</p>
-          <p className="text-lg">number of player: {game.gamePlayers.length}</p>
+          <p className="text-xl">game ID: {game.gameId}</p>
+          <p className="text-lg">number of players: {game.gamePlayers.length}</p>
         </div>
         <div className="flex flex-row">
           {
             game.gamePlayers.map((player) => {
-              const gamePlayerBet = player.getInitialBetAmount();
+              const gamePlayerBet = player.getBetAmount();
 
               return (
                 <PlayerInfo
@@ -73,15 +74,7 @@ const BlackJackLanding = ({ game, gamePlayer } : BlackJackLandingProps) => {
                   <input type="submit" name="submit" value="hit" className="p-3 m-1 btn border border-solid border-black" />
                   <input type="submit" name="submit" value="stay" className="p-3 m-1 btn border border-solid border-black" />
                   <input type="submit" name="submit" value="surrender" className="p-3 m-1 btn border border-solid border-black" />
-                </div>
-              </Form>
-            : null
-        }
-        {
-          showEndGame && !isGameOver && !showActionBar
-            ? <Form method="post">
-                <div className="">
-                  <input type="submit" name="submit" value="end game" className="p-3 m-1 btn border border-solid border-black" />
+                  <input type="submit" name="submit" value="double down" className="p-3 m-1 btn border border-solid border-black" />
                 </div>
               </Form>
             : null
@@ -91,6 +84,7 @@ const BlackJackLanding = ({ game, gamePlayer } : BlackJackLandingProps) => {
             ? <PlayerOutcome gamePlayerRound={playerHighestRound} />
             : null
         }
+        <GameRoundLog gamePlayer={gamePlayer} />
       </>
     );
   } else {

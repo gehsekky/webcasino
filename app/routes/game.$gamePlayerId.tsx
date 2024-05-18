@@ -35,7 +35,8 @@ export async function action({
   params,
 } : ActionFunctionArgs) {
   const formData = await request.formData();
-  const submitValue = formData.get('submit');
+  const submitValue = formData.get('submit')?.toString() || '';
+  // handle placing initial bet
   if (submitValue === 'place initial bet') {
     const amount = parseInt(formData.get('amount')?.toString() || '');
     if (isNaN(amount)) {
@@ -45,21 +46,31 @@ export async function action({
     if (!gamePlayerBet) {
       throw new Error('could not create game player bet');
     }
-  } else if (submitValue === 'start game') {
     const gamePlayerDTO = await getGamePlayerById(params.gamePlayerId || '');
     const gameDTO = await getGameById(gamePlayerDTO.game_id);
     const game = new Game(gameDTO);
-    await game.startGame();
-  } else if (submitValue === 'hit' || submitValue === 'stay' || submitValue === 'surrender') {
+    if (game.gamePlayers.every((gamePlayer) => gamePlayer.gamePlayerBets.some((playerBet) => playerBet.type === 'initial'))) {
+      const gamePlayerDTO = await getGamePlayerById(params.gamePlayerId || '');
+      const gameDTO = await getGameById(gamePlayerDTO.game_id);
+      const game = new Game(gameDTO);
+      await game.startGame();
+    }
+  } else if (['hit', 'stay', 'surrender', 'double down'].indexOf(submitValue) > -1) {
+    // handle player actions
     const gamePlayerDTO = await getGamePlayerById(params.gamePlayerId || '');
     const gamePlayer = new GamePlayer(gamePlayerDTO);
     const playerHighestRound = Math.max(...gamePlayer.gamePlayerRounds.map((gamePlayerRound) => gamePlayerRound.round));
     await gamePlayer.submitAction(playerHighestRound, submitValue);
-  } else if (submitValue === 'end game') {
-    const gamePlayerDTO = await getGamePlayerById(params.gamePlayerId || '');
+
     const gameDTO = await getGameById(gamePlayerDTO.game_id);
     const game = new Game(gameDTO);
-    await game.endGame();
+    // check if every user is at stay or is out of game
+    if (game.gamePlayers.every((player) => player.gamePlayerRounds.some((playerRound) => ['stay', 'win', 'lose', 'push'].indexOf(playerRound.action) > -1))) {
+      // check if at least one player is left to continue
+      if (game.gamePlayers.some((player) => player.gamePlayerRounds.some((round) => ['stay'].indexOf(round.action) > -1))) {
+        await game.endGame();
+      }
+    }
   }
 
   return redirect(`/game/${params.gamePlayerId}`);

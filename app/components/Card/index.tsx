@@ -19,12 +19,12 @@ const Card = ({ card } : CardProps) => {
   };
 
   return (
-    <div className="card w-40 bg-base-100 shadow-xl card-bordered border-black m-1 p-1">
+    <div className="card w-30 bg-base-100 shadow-xl card-bordered border-black m-1 p-1">
       <figure>
-        <img src={imageMap[card.suit]} alt={card.suit} width={100} />
+        <img src={imageMap[card.suit]} alt={card.suit} width={80} />
       </figure>
       <div className="card-body items-center text-center">
-        <h2 className="card-title text-4xl">{card.rank !== 'hidden' ? card.rank : ''}</h2>
+        <h2 className="card-title text-3xl">{card.rank !== 'hidden' ? card.rank : ''}</h2>
       </div>
     </div>
   );

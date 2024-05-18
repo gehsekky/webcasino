@@ -17,8 +17,8 @@ const CasinoLanding = () => {
     <>
       <Header title="web casino" />
       <div className="container mx-auto">
-        <div className="hero min-h-screen bg-base-200 border border-solid border-black">
-          <div className="hero-content text-center flex-col border border-solid border-black">
+        <div className="hero min-h-80 bg-base-200">
+          <div className="hero-content text-center flex-col">
             <h1 className="text-4xl text-center">welcome to the casino</h1>
             <p className="text-lg">new game</p>
             <div>
