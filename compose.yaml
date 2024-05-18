@@ -1,0 +1,27 @@
+name: web-casino
+
+services:
+  db:
+    image: postgres:16.3-alpine
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - db:/var/lib/postgresql/data
+      - ./prisma/seed.sql:/docker-entrypoint-initdb.d/seed.sql
+  web:
+    build: .
+    depends_on:
+      - db
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: "postgresql://postgres:postgres@db:5432/db_webcasino?schema=public"
+    ports:
+      - "3000:3000"
+
+volumes:
+  db:
+    driver: local
