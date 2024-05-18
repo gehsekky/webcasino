@@ -21,7 +21,7 @@ const PlayerInfo = ({ name, money, currentBet, cards, isCurrentPlayer } : Player
           cards.map((card) => <CardComponent key={card.suit + card.rank} card={card} />)
         }
       </div>
-      <div>potential totals: {Card.getTotals(cards)}</div>
+      <div>potential totals: {Card.getTotals(cards).join(', ')}</div>
     </div>
   );
 };

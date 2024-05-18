@@ -41,17 +41,14 @@ export const createGamePlayerRoundForAction = async (gamePlayer : GamePlayer, cu
     if (deck.length === 0) {
       throw new Error('deck is empty');
     }
-    const hand = gamePlayer.gamePlayerRounds.find((gameRound) => gameRound.round === currentRound)?.data.hand;
-    if (!hand) {
-      throw new Error('could not fetch game player hand');
-    }
 
     if (action === 'hit') {
       const popped = deck.pop();
       if (!popped) {
         throw new Error('could not get popped card');
       }
-      hand.push(popped);
+      gamePlayer.hand.push(popped);
+      await gamePlayer.save();
       const game = new Game(gameDTO);
       await game.save();
     }
@@ -60,10 +57,7 @@ export const createGamePlayerRoundForAction = async (gamePlayer : GamePlayer, cu
       data: {
         game_player_id: gamePlayer.id,
         round: currentRound + 1,
-        data: {
-          action,
-          hand,
-        } as unknown as Prisma.JsonObject
+        action,
       }
     });
   });
@@ -73,4 +67,25 @@ export const createGamePlayerRoundForAction = async (gamePlayer : GamePlayer, cu
   }
 
   return gamePlayerRound;
+};
+
+export const updateGamePlayer = async (gamePlayer : GamePlayer) => {
+  const player = await prisma.$transaction(async (tx) => {
+    return tx.game_player.update({
+      where: {
+        id: gamePlayer.id,
+      },
+      data: {
+        data: {
+          cards: gamePlayer.hand
+        } as unknown as Prisma.JsonObject
+      }
+    })
+  });
+
+  if (!player) {
+    throw new Error('could not update user');
+  }
+
+  return player;
 };

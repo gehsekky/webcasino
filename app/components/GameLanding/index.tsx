@@ -21,14 +21,18 @@ const loadGameComponent = (game : Game, gamePlayer : GamePlayer) => {
 
 const GameLanding = ({ game, gamePlayer } : GameLandingProps) => {
   return (
-    <div className="container mx-auto">
-      <div className="hero min-h-screen bg-base-200">
-        <div className="hero-content text-center flex-col">
-          <Header title={game.type} />
-          {loadGameComponent(game, gamePlayer)}
+    <>
+      <Header title={game.type} />
+      <div className="container mx-auto">
+        <div className="hero min-h-screen bg-base-200">
+          <div className="hero-content text-center flex-col">
+            
+            {loadGameComponent(game, gamePlayer)}
+          </div>
         </div>
       </div>
-    </div>
+    </>
+
   )
 };
 

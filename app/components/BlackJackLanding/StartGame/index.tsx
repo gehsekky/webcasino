@@ -11,7 +11,7 @@ const StartGame = ({ game, gamePlayer } : StartGameProps) => {
   if (game.createdBy === gamePlayer.user.id) {
     return (
       <Form method="post">
-        <input type="submit" name="submit" className="btn" value="start game" />
+        <input type="submit" name="submit" className="btn border border-solid border-black" value="start game" />
       </Form>
     );
   } else {

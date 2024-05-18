@@ -1,4 +1,5 @@
 import { user } from '@prisma/client';
+import { updateUser } from 'actions/user';
 
 class User {
   id : string;
@@ -9,6 +10,10 @@ class User {
     this.id = user.id;
     this.name = user.name;
     this.money = user.money;
+  }
+
+  async save() {
+    return await updateUser(this);
   }
 }
 

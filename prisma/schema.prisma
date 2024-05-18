@@ -24,7 +24,7 @@ model user {
 model game {
   id          String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   created_by  String        @db.Uuid
-  data        Json?         @db.Json
+  data        Json          @db.Json
   updated_at  DateTime      @default(now()) @db.Timestamptz(6)
   created_at  DateTime      @default(now()) @db.Timestamptz(6)
   user        user          @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -47,7 +47,7 @@ model game_player {
   id                String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   game_id           String              @db.Uuid
   user_id           String              @db.Uuid
-  active            Boolean             @default(true)
+  data              Json                @db.Json
   updated_at        DateTime            @default(now()) @db.Timestamptz(6)
   created_at        DateTime            @default(now()) @db.Timestamptz(6)
   game              game                @relation(fields: [game_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -60,7 +60,7 @@ model game_player {
 model game_player_round {
   game_player_id String      @db.Uuid
   round          Int
-  data           Json?       @db.Json
+  action         String      @db.VarChar(64)
   updated_at     DateTime    @default(now()) @db.Timestamptz(6)
   created_at     DateTime    @default(now()) @db.Timestamptz(6)
   game_player    game_player @relation(fields: [game_player_id], references: [id], onDelete: NoAction, onUpdate: NoAction)

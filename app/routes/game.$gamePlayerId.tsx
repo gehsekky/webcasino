@@ -50,18 +50,16 @@ export async function action({
     const gameDTO = await getGameById(gamePlayerDTO.game_id);
     const game = new Game(gameDTO);
     await game.startGame();
-  } else if (submitValue === 'hit' || submitValue === 'stay') {
-    console.log('submitValue', submitValue);
+  } else if (submitValue === 'hit' || submitValue === 'stay' || submitValue === 'surrender') {
     const gamePlayerDTO = await getGamePlayerById(params.gamePlayerId || '');
     const gamePlayer = new GamePlayer(gamePlayerDTO);
+    const playerHighestRound = Math.max(...gamePlayer.gamePlayerRounds.map((gamePlayerRound) => gamePlayerRound.round));
+    await gamePlayer.submitAction(playerHighestRound, submitValue);
+  } else if (submitValue === 'end game') {
+    const gamePlayerDTO = await getGamePlayerById(params.gamePlayerId || '');
     const gameDTO = await getGameById(gamePlayerDTO.game_id);
     const game = new Game(gameDTO);
-    await gamePlayer.submitAction(game.data.currentRound, submitValue);
-    // check if all players have gone this round
-    if (game.gamePlayers.filter((player) => player.active).every((player) => player.gamePlayerRounds.some((round) => round.round === game.data.currentRound))) {
-      game.data.currentRound++;
-      await game.save();
-    }
+    await game.endGame();
   }
 
   return redirect(`/game/${params.gamePlayerId}`);

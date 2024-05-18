@@ -17,13 +17,13 @@ const CasinoLanding = () => {
     <>
       <Header title="web casino" />
       <div className="container mx-auto">
-        <div className="hero min-h-screen bg-base-200">
-          <div className="hero-content text-center flex-col">
+        <div className="hero min-h-screen bg-base-200 border border-solid border-black">
+          <div className="hero-content text-center flex-col border border-solid border-black">
             <h1 className="text-4xl text-center">welcome to the casino</h1>
             <p className="text-lg">new game</p>
             <div>
               <Form method="post">
-                <input type="text" name="name" />
+                <input type="text" name="name" className="input input-bordered w-full max-w-xs m-2" placeholder="name" />
                 <div className="form-control">
                   <label className="label cursor-pointer">
                     <span className="label-text">blackjack</span> 
@@ -36,22 +36,21 @@ const CasinoLanding = () => {
                     <input type="radio" name="gameType" className="radio checked:bg-blue-500" value="poker" />
                   </label>
                 </div>
-                <input type="submit" name="submit" className="btn" value="create new" />
+                <input type="submit" name="submit" className="btn border border-solid border-black" value="create new" />
               </Form>
             </div>
 
             <p className="text-lg">resume game</p>
             <div>
               <Form reloadDocument onSubmit={onSubmitHandlerResume} navigate={false}>
-                <input type="text" onChange={onChangeHandlerResume} />
-                <input type="submit" name="submit" className="btn" value="resume" />
+                <div><input type="text" onChange={onChangeHandlerResume} className="input input-bordered w-full max-w-xs m-2" placeholder="game player id" /></div>
+                <div><input type="submit" name="submit" className="btn border border-solid border-black" value="resume" /></div>
               </Form>
             </div>
           </div>
         </div>
       </div>
     </>
-
   );
 };
 

@@ -16,7 +16,6 @@ export const createNewGameAndGamePlayer = async (type : string, createdBy : User
     minimumBet: DEFAULT_MINIMUM_BET,
     maximumBet: DEFAULT_MAXIMUM_BET,
     deck: newDeck.cards,
-    currentRound: 0,
     dealerHand: [],
     dealerCardsRevealed: false,
   };
@@ -37,6 +36,9 @@ export const createNewGameAndGamePlayer = async (type : string, createdBy : User
       data: {
         user_id: createdBy.id,
         game_id: newGame.id,
+        data: {
+          cards: [],
+        }
       }
     });
   
@@ -87,6 +89,7 @@ export const getGameById = async (gameId : string, tx? : PrismaTransactionClient
 };
 
 export const updateGame = async (game : Game) => {
+  game.data.deck = game.deck.cards;
   return prisma.$transaction(async (tx) => {
     return tx.game.update({
       where: {

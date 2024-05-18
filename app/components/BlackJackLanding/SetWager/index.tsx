@@ -23,9 +23,13 @@ const SetWager = ({ game, gamePlayer } : SetWagerProps) => {
                   </div>
                 </div>
                 <div>
+                  <div>{currGamePlayer.user.name}</div>
+                  <div>money: {currGamePlayer.user.money}</div>
+                </div>
+                <div>
                   <Form method="post">
-                    <input type="text" className="input input-bordered w-full max-w-xs" name="amount" />
-                    <input type="submit" className="btn" value="place initial bet" name="submit" />
+                    <input type="text" className="input input-bordered w-full max-w-xs m-2" name="amount" />
+                    <input type="submit" className="btn border border-solid border-black" value="place initial bet" name="submit" />
                   </Form>
                 </div>
               </div>
@@ -38,6 +42,10 @@ const SetWager = ({ game, gamePlayer } : SetWagerProps) => {
                     <img src={gangsterAvatar} alt="profile avatar" />
                     <a href="https://www.freepik.com/free-vector/mysterious-mafia-man-smoking-cigarette_7074311.htm#query=avatar&position=1&from_view=keyword&track=sph&uuid=5de6d072-1a97-44cb-8b2b-7562679e6c5a">Image by pikisuperstar on Freepik</a>
                   </div>
+                </div>
+                <div>
+                  <div>{currGamePlayer.user.name}</div>
+                  <div>money: {currGamePlayer.user.money}</div>
                 </div>
               </div>
             );
