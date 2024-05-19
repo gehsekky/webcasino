@@ -1,18 +1,16 @@
-import GamePlayer from 'lib/GamePlayer';
+import { GamePlayerDTO } from 'actions/gamePlayer';
 
 type GameRoundLogProps = {
-  gamePlayer : GamePlayer;
+  gamePlayer : GamePlayerDTO;
 }
 
 const GameRoundLog = ({ gamePlayer } : GameRoundLogProps) => {
   return (
     <div>
       {
-        gamePlayer.gamePlayerRounds.map((gamePlayerRound) => {
+        gamePlayer.game_player_round.map((gamePlayerRound) => {
           return (
-            <div>
-              <div>{gamePlayerRound.round} - {gamePlayerRound.action}</div>
-            </div>
+            <div key={`${gamePlayerRound.game_player_id}-${gamePlayerRound.round}`}>{gamePlayerRound.round} - {gamePlayerRound.action}</div>
           );
         })
       }

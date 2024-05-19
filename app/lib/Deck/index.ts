@@ -1,4 +1,4 @@
-import Card from "lib/Card";
+import Card from 'lib/Card';
 
 class Deck {
   cards : Card[];

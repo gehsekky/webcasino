@@ -1,6 +1,6 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, user } from '@prisma/client';
 import { DEFAULT_USER_MONEY } from 'constants/';
-import User from 'lib/User';
+import { PrismaTransactionClient } from './game';
 
 const prisma = new PrismaClient();
 
@@ -27,13 +27,15 @@ export const findOrCreateUserByName = async (name : string) => {
   return user;
 };
 
-export const getUserById = async (userId : string) => {
-  const user = await prisma.$transaction(async (tx) => {
-    return tx.user.findUnique({
-      where: {
-        id: userId,
-      }
-    });
+export const getUserById = async (userId : string, tx? : PrismaTransactionClient) => {
+  if (!tx) {
+    tx = prisma;
+  }
+
+  const user = await tx.user.findUnique({
+    where: {
+      id: userId,
+    }
   });
 
   if (!user) {
@@ -43,16 +45,18 @@ export const getUserById = async (userId : string) => {
   return user;
 }
 
-export const updateUser = async (user : User) => {
-  const updatedUser = await prisma.$transaction(async (tx) => {
-    return tx.user.update({
-      where: {
-        id: user.id,
-      },
-      data: {
-        money: user.money,
-      }
-    });
+export const updateUser = async (user : user, tx? : PrismaTransactionClient) => {
+  if (!tx) {
+    tx = prisma;
+  }
+
+  const updatedUser = await tx.user.update({
+    where: {
+      id: user.id,
+    },
+    data: {
+      money: user.money,
+    }
   });
 
   if (!updatedUser) {

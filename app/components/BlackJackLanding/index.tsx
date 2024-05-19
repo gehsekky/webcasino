@@ -1,26 +1,25 @@
-import Game from "lib/Game";
-import GamePlayer from 'lib/GamePlayer';
 import SetWager from './SetWager';
-import StartGame from './StartGame';
 import PlayerInfo from './PlayerInfo';
 import { Form } from '@remix-run/react';
 import PlayerOutcome from './PlayerOutcome';
 import GameRoundLog from 'components/BlackJackLanding/GameRoundLog';
+import type { GameData, GameDTO } from 'actions/game';
+import { GamePlayerData, GamePlayerDTO, getGamePlayerBetAmount } from 'actions/gamePlayer';
 
 type BlackJackLandingProps = {
-  game: Game;
-  gamePlayer: GamePlayer;
+  game: GameDTO;
+  gamePlayer: GamePlayerDTO;
 };
 
 const BlackJackLanding = ({ game, gamePlayer } : BlackJackLandingProps) => {
-  const arePlayersDoneBetting = game.gamePlayers.every((player) => player.gamePlayerBets.some((bet) => bet.type === 'initial'));
-  const hasGameStarted = game.data.dealerHand.length > 0;
-  const showActionBar = !gamePlayer.gamePlayerRounds.some((round) => ['stay', 'win', 'lose', 'push'].indexOf(round.action) > -1);
-  const isGameOver = gamePlayer.gamePlayerRounds.some((round) => ['win', 'lose', 'push'].indexOf(round.action) > -1);
-  const playerHighestRound = gamePlayer.gamePlayerRounds[Math.max(...gamePlayer.gamePlayerRounds.map((gamePlayerRound) => gamePlayerRound.round)) - 1];
-  const showEndGame = game.gamePlayers.every((player) => player.gamePlayerRounds.some((round) => ['stay', 'win', 'lose', 'push'].indexOf(round.action)));
+  const gameData = game.data as unknown as GameData;
+  const arePlayersDoneBetting = game.game_player.every((player) => player.game_player_bet.some((bet) => bet.type === 'initial'));
+  const hasGameStarted = gameData.dealerHand.length > 0;
+  const showActionBar = !gamePlayer.game_player_round.some((round) => ['stay', 'win', 'lose', 'push'].indexOf(round.action) > -1);
+  const isGameOver = gamePlayer.game_player_round.some((round) => ['win', 'lose', 'push'].indexOf(round.action) > -1);
+  const playerHighestRound = gamePlayer.game_player_round[Math.max(...gamePlayer.game_player_round.map((gamePlayerRound) => gamePlayerRound.round)) - 1];
 
-  if (!gamePlayer.gamePlayerBets || !gamePlayer.gamePlayerBets.length) {
+  if (!gamePlayer.game_player_bet || !gamePlayer.game_player_bet.length) {
     // if current player has not bet, show set wager screen
     return (
       <SetWager game={game} gamePlayer={gamePlayer} />
@@ -31,41 +30,37 @@ const BlackJackLanding = ({ game, gamePlayer } : BlackJackLandingProps) => {
       <>
         <div>players not done betting:</div>
         <ul>
-          {game.gamePlayers.filter((gamePlayer) => !gamePlayer.gamePlayerBets.length).map((gamePlayer) => <li>{gamePlayer.user.name}</li>)}
+          {game.game_player.filter((gamePlayer) => !gamePlayer.game_player_bet.length).map((gamePlayer) => <li>{gamePlayer.user.name}</li>)}
         </ul>
       </>
-    );
-  } else if (arePlayersDoneBetting && !hasGameStarted) {
-    // if players have all set bets but no rounds exist, show start game button to game owner
-    return (
-      <StartGame game={game} gamePlayer={gamePlayer} />
     );
   } else if (arePlayersDoneBetting && hasGameStarted) {
     // players have bet and game has started. show cards and show player action buttons
     return (
       <>
         <div className="text-left">
-          <p className="text-xl">game ID: {game.gameId}</p>
-          <p className="text-lg">number of players: {game.gamePlayers.length}</p>
+          <p className="text-xl">game ID: {game.id}</p>
+          <p className="text-lg">number of players: {game.game_player.length}</p>
         </div>
         <div className="flex flex-row">
           {
-            game.gamePlayers.map((player) => {
-              const gamePlayerBet = player.getBetAmount();
+            game.game_player.map((player) => {
+              const playerData = player.data as unknown as GamePlayerData;
+              const gamePlayerBet = getGamePlayerBetAmount(player);
 
               return (
                 <PlayerInfo
                   key={player.id}
-                  name={player?.user?.name}
-                  money={player?.user?.money}
+                  name={player.user.name}
+                  money={player.user.money}
                   currentBet={gamePlayerBet}
-                  cards={player.hand}
+                  cards={playerData.cards}
                   isCurrentPlayer={player.id === gamePlayer.id}
                 />
               );
             })
           }
-          <PlayerInfo key="dealer" name="dealer" cards={game.data.dealerHand} isCurrentPlayer={false}/>
+          <PlayerInfo key="dealer" name="dealer" cards={gameData.dealerHand} isCurrentPlayer={false}/>
         </div>
         {
           showActionBar
@@ -86,10 +81,6 @@ const BlackJackLanding = ({ game, gamePlayer } : BlackJackLandingProps) => {
         }
         <GameRoundLog gamePlayer={gamePlayer} />
       </>
-    );
-  } else {
-    return (
-      <div>unhandled case</div>
     );
   }
 };

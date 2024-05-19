@@ -1,18 +1,28 @@
-import { PrismaClient, money_transaction } from '@prisma/client';
+import { PrismaClient, money_transaction, user } from '@prisma/client';
 import { PrismaTransactionClient } from './game';
+import { updateUser } from './user';
 
 const prisma = new PrismaClient();
 
 export type MoneyTransactionDTO = money_transaction;
 
-export const createMoneyTransaction = async (userId : string, type : string, amount : number, gamePlayerId? : string | null, note? : string | null, tx? : PrismaTransactionClient) => {
+export const createMoneyTransaction = async (user : user, type : string, amount : number, gamePlayerId? : string | null, note? : string | null, tx? : PrismaTransactionClient) => {
   if (!tx) {
     tx = prisma;
   }
 
+  if (type === 'debit') {
+    user.money -= amount;
+  } else if (type === 'credit') {
+    user.money += amount;
+  } else {
+    throw new Error('unknown money transaction type');
+  }
+  await updateUser(user, tx);
+
   const moneyTransaction = await tx.money_transaction.create({
     data: {
-      user_id: userId,
+      user_id: user.id,
       game_player_id: gamePlayerId,
       type,
       amount,

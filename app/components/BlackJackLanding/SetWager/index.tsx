@@ -1,18 +1,18 @@
 import { Form } from '@remix-run/react';
-import Game from 'lib/Game';
-import GamePlayer from 'lib/GamePlayer';
+import { GameDTO } from 'actions/game';
+import { GamePlayerDTO } from 'actions/gamePlayer';
 import gangsterAvatar from 'public/img/gangster_avatar.jpg';
 
 type SetWagerProps = {
-  game : Game;
-  gamePlayer : GamePlayer;
+  game : GameDTO;
+  gamePlayer : GamePlayerDTO;
 };
 
 const SetWager = ({ game, gamePlayer } : SetWagerProps) => {
   return (
     <div className="container flex-row">
       {
-        game.gamePlayers.map((currGamePlayer) => {
+        game.game_player.map((currGamePlayer) => {
           if (currGamePlayer.id === gamePlayer.id) {
             return (
               <div key={currGamePlayer.id}>

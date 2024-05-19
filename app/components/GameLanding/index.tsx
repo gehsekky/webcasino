@@ -1,28 +1,30 @@
-import BlackJackLanding from "components/BlackJackLanding";
-import Header from "components/Header";
-import Game from "lib/Game";
-import GamePlayer from 'lib/GamePlayer';
+import type { GameData, GameDTO } from 'actions/game';
+import { GamePlayerDTO } from 'actions/gamePlayer';
+import BlackJackLanding from 'components/BlackJackLanding';
+import Header from 'components/Header';
 
 type GameLandingProps = {
-  game : Game;
-  gamePlayer: GamePlayer;
+  game : GameDTO;
+  gamePlayer: GamePlayerDTO;
 }
 
-const loadGameComponent = (game : Game, gamePlayer : GamePlayer) => {
-  switch (game.data.type) {
+const loadGameComponent = (game : GameDTO, gamePlayer : GamePlayerDTO) => {
+  const gameData = game.data as unknown as GameData;
+  switch (gameData.type) {
     case 'blackjack':
       return <BlackJackLanding game={game} gamePlayer={gamePlayer} />
     case 'poker':
       break;
     default:
-      throw new Error(`unrecognized game type: ${game.data.type}`);
+      throw new Error(`unrecognized game type: ${gameData.type}`);
   }
 };
 
 const GameLanding = ({ game, gamePlayer } : GameLandingProps) => {
+  const gameData = game.data as unknown as GameData;
   return (
     <>
-      <Header title={game.type} />
+      <Header title={gameData.type} />
       <div className="container mx-auto">
         <div className="hero min-h-80 bg-base-200">
           <div className="hero-content text-center flex-col">
