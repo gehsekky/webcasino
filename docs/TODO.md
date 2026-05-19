@@ -3,6 +3,12 @@
 Actionable items from the architecture and best-practices review.
 Roughly ordered by ROI within each section.
 
+> **Current focus (2026-05-19):** Finish the game-engine architecture, then
+> rewrite the frontend from scratch. **All UI polish and component-level
+> changes are deferred** — touch components only when a backend change
+> mechanically requires it. The "Architecture" items below marked
+> *(UI — deferred)* live behind that gate.
+
 ## Critical correctness bugs
 
 - [x] **Deck is missing 10s.** `app/lib/Card/index.ts:6` — add `'10'` to the `ranks` array. Every blackjack game is currently played with a 48-card deck. *(Done — task #2; covered by `Deck.spec.ts`.)*
@@ -30,10 +36,10 @@ Roughly ordered by ROI within each section.
 
 - [x] **Singleton Prisma client.** All `app/actions/*` files now import `prisma` from `db.server`. `PrismaTransactionClient` type lives in `db.server.ts` (re-exported from `actions/game.server.ts` for compatibility). *(Done — task #4.)*
 - [x] **Use `.server.ts` suffix for server-only modules.** All `app/actions/*.ts` renamed to `*.server.ts` via `git mv` so Vite reliably tree-shakes them out of the client bundle. Imports updated across `routes/`, `components/`, and internally within `actions/`. *(Done — task #4.)*
-- [ ] **Fix the import source in `routes/game.$gamePlayerId.tsx:2`.** `json` and `useLoaderData` should come from `@remix-run/react`, not `react-router`. Works today but isn't the documented surface.
-- [ ] **Add `ErrorBoundary` exports** to routes (`_index.tsx`, `game.$gamePlayerId.tsx`) so loader/action errors render gracefully instead of crashing.
-- [ ] **Reduce coupling between `game.ts` and `gamePlayer.ts`.** They import types and functions from each other; move shared types (`PrismaTransactionClient`) into `db.server.ts`.
-- [ ] **Replace `window.open` resume flow** in `app/components/CasinoLanding/index.tsx:13` with normal in-tab navigation.
+- [ ] **Fix the import source in `routes/game.$gamePlayerId.tsx:2`.** `json` and `useLoaderData` should come from `@remix-run/react`, not `react-router`. Works today but isn't the documented surface. *(UI — deferred; will be handled by the frontend rewrite.)*
+- [ ] **Add `ErrorBoundary` exports** to routes (`_index.tsx`, `game.$gamePlayerId.tsx`) so loader/action errors render gracefully instead of crashing. *(UI — deferred.)*
+- [ ] **Reduce coupling between `game.ts` and `gamePlayer.ts`.** They import types and functions from each other. *(Will be resolved naturally by task #6 integration in task #10's schema decomp.)*
+- [ ] **Replace `window.open` resume flow** in `app/components/CasinoLanding/index.tsx:13` with normal in-tab navigation. *(UI — deferred.)*
 
 ## Tooling & DX
 
