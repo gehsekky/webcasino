@@ -1,67 +1,83 @@
-import { ActionFunctionArgs, LoaderFunctionArgs, json, redirect } from '@remix-run/node';
+import {
+  type ActionFunctionArgs,
+  type LoaderFunctionArgs,
+  json,
+  redirect,
+} from '@remix-run/node';
 import { useLoaderData } from '@remix-run/react';
-import GameLanding from 'components/GameLanding';
-import { GameDTO, getGameById } from 'actions/game.server';
-import { GamePlayerDTO, getGamePlayerById } from 'actions/gamePlayer.server';
-import { submitAction, parseBlackjackActionFromForm } from 'actions/handEngine.server';
-import { requireSeat } from 'auth/guards.server';
-import { parseBlackjackState } from 'lib/gameState';
+import { prisma } from 'db.server';
+import { requireUser, requireSeat } from 'auth/guards.server';
+import {
+  submitAction,
+  parseBlackjackActionFromForm,
+} from 'actions/handEngine.server';
+import { BlackjackStateSchema } from 'lib/gameState';
+import { blackjackEngine } from 'engines/blackjack/engine';
+import type { BlackjackView } from 'engines/blackjack/types';
+import SiteHeader from 'components/SiteHeader';
+import HandView from 'components/HandView';
 
-export async function loader({
-  request,
-  params,
-} : LoaderFunctionArgs) {
-  if (!params.gamePlayerId) {
-    throw new Error('no gamePlayerId specified');
+export async function loader({ request, params }: LoaderFunctionArgs) {
+  const handSeatId = params.gamePlayerId;
+  if (!handSeatId) {
+    throw new Error('handSeatId is required');
   }
-  await requireSeat(request, params.gamePlayerId);
+  const user = await requireUser(request);
+  await requireSeat(request, handSeatId);
 
-  const gamePlayer = await getGamePlayerById(params.gamePlayerId);
-  const game = await getGameById(gamePlayer.hand_id);
-  if (!game) {
-    throw new Error('game not found');
+  const handSeat = await prisma.hand_seat.findUnique({
+    where: { id: handSeatId },
+    include: { hand: true, user: { select: { name: true, money: true } } },
+  });
+  if (!handSeat) {
+    throw new Response('seat not found', { status: 404 });
   }
-  const gameState = parseBlackjackState(game.data);
-  gameState.deck = [];
-  if (!gameState.dealerCardsRevealed && gameState.dealerHand.length > 0) {
-    gameState.dealerHand[0].suit = 'hidden';
-    gameState.dealerHand[0].rank = 'hidden';
-  }
-  game.data = gameState;
+
+  const state = BlackjackStateSchema.parse(handSeat.hand.data);
+  const view: BlackjackView = blackjackEngine.viewFor(state, handSeatId);
 
   return json({
-    game,
-    gamePlayer
+    handId: handSeat.hand_id,
+    handSeatId: handSeat.id,
+    view,
+    viewer: { id: user.id, name: handSeat.user.name, balance: handSeat.user.money },
   });
 }
 
-export async function action({
-  request,
-  params,
-} : ActionFunctionArgs) {
-  if (!params.gamePlayerId) {
-    throw new Error('no gamePlayerId specified');
+export async function action({ request, params }: ActionFunctionArgs) {
+  const handSeatId = params.gamePlayerId;
+  if (!handSeatId) {
+    throw new Error('handSeatId is required');
   }
-  await requireSeat(request, params.gamePlayerId);
+  await requireSeat(request, handSeatId);
 
   const formData = await request.formData();
-  const submitValue = formData.get('submit')?.toString() || '';
-  const action = parseBlackjackActionFromForm(submitValue, formData, params.gamePlayerId);
-  await submitAction({ handSeatId: params.gamePlayerId, action });
+  const submitValue = formData.get('submit')?.toString() ?? '';
+  const action = parseBlackjackActionFromForm(submitValue, formData, handSeatId);
+  await submitAction({ handSeatId, action });
 
-  return redirect(`/game/${params.gamePlayerId}`);
+  // Stay on the same page; the SSE channel pushes the new state, and the
+  // fetcher-triggered loader revalidation refreshes the balance.
+  return redirect(`/game/${handSeatId}`);
 }
 
-type GameLandingRouteLoaderData = {
-  game : GameDTO;
-  gamePlayer : GamePlayerDTO;
-};
+export default function GameRoute() {
+  const data = useLoaderData<typeof loader>();
+  // The loader's `view` is JSON-serialized; Remix's typing widens dates to
+  // strings but our view contains no Date fields, so a cast through unknown
+  // gets us back to the BlackjackView shape without runtime cost.
+  const initialView = data.view as unknown as BlackjackView;
 
-const GameLandingRoute = () => {
-  const loaderData = useLoaderData() as unknown as GameLandingRouteLoaderData;
   return (
-    <GameLanding game={loaderData.game} gamePlayer={loaderData.gamePlayer} />
+    <div className="min-h-screen bg-gradient-to-b from-emerald-950 via-emerald-900 to-emerald-950 text-white">
+      <SiteHeader viewer={{ name: data.viewer.name, balance: data.viewer.balance }} />
+      <HandView
+        handId={data.handId}
+        handSeatId={data.handSeatId}
+        initialView={initialView}
+        viewerName={data.viewer.name}
+        viewerBalance={data.viewer.balance}
+      />
+    </div>
   );
-};
-
-export default GameLandingRoute;
+}
