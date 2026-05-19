@@ -11,6 +11,7 @@ const ACTION_LABEL: Partial<Record<BlackjackAction['kind'], string>> = {
   hit: 'Hit',
   stay: 'Stay',
   double_down: 'Double Down',
+  split: 'Split',
   surrender: 'Surrender',
 };
 
@@ -19,6 +20,7 @@ const ACTION_SUBMIT_VALUE: Partial<Record<BlackjackAction['kind'], string>> = {
   hit: 'hit',
   stay: 'stay',
   double_down: 'double down',
+  split: 'split',
   surrender: 'surrender',
 };
 
@@ -26,6 +28,7 @@ const ACTION_VARIANT: Partial<Record<BlackjackAction['kind'], ButtonVariant>> = 
   hit: 'success',
   stay: 'info',
   double_down: 'warning',
+  split: 'primary',
   surrender: 'danger',
 };
 

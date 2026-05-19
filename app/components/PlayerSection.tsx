@@ -7,6 +7,8 @@ type PlayerSectionProps = {
   isViewer: boolean;
   isToAct: boolean;
   viewerName: string;
+  /** When set (after a split), suffix shown next to the player name (e.g. "Hand 1"). */
+  handLabel?: string;
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -33,7 +35,13 @@ const STATUS_CLASS: Record<string, string> = {
   blackjack: 'bg-yellow-400 text-slate-900',
 };
 
-export default function PlayerSection({ player, isViewer, isToAct, viewerName }: PlayerSectionProps) {
+export default function PlayerSection({
+  player,
+  isViewer,
+  isToAct,
+  viewerName,
+  handLabel,
+}: PlayerSectionProps) {
   const total = player.cards.length > 0 ? handTotal(player.cards) : null;
   const displayName = isViewer ? viewerName : player.id.slice(0, 8);
   const statusLabel = STATUS_LABEL[player.status] ?? player.status;
@@ -55,6 +63,11 @@ export default function PlayerSection({ player, isViewer, isToAct, viewerName }:
         >
           {displayName}
           {isViewer && <span className="ml-2 text-xs font-normal lowercase text-emerald-300">(you)</span>}
+          {handLabel && (
+            <span className="ml-2 text-xs font-semibold uppercase tracking-wide text-yellow-300">
+              · {handLabel}
+            </span>
+          )}
         </h2>
         <div className="flex items-center gap-2">
           <span className={`text-xs font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 ${statusClass}`}>

@@ -10,6 +10,7 @@ export type BlackjackAction =
   | { kind: 'hit'; playerId: string }
   | { kind: 'stay'; playerId: string }
   | { kind: 'double_down'; playerId: string }
+  | { kind: 'split'; playerId: string }
   | { kind: 'surrender'; playerId: string }
   | { kind: 'dealer_play' };
 

@@ -121,6 +121,7 @@ export const blackjackEngine: GameEngine<BlackjackState, BlackjackAction, Blackj
       doubled: false,
       status: 'awaiting_bet',
       insuranceBet: null,
+      parentSlotId: null,
     }));
     return {
       type: 'blackjack',
@@ -164,7 +165,21 @@ export const blackjackEngine: GameEngine<BlackjackState, BlackjackAction, Blackj
       ];
       if (p.cards.length === 2 && !p.doubled) {
         acts.push({ kind: 'double_down', playerId: who });
-        acts.push({ kind: 'surrender', playerId: who });
+        const hasSplitSibling = state.players.some((o) => o.parentSlotId === p.id);
+        // Split: same-rank pair on the first two cards. Resplits disabled
+        // for now (parentSlotId / hasSplitSibling guards); standard
+        // re-split rules can come back as a config flag later.
+        if (
+          p.cards[0].rank === p.cards[1].rank &&
+          !p.parentSlotId &&
+          !hasSplitSibling
+        ) {
+          acts.push({ kind: 'split', playerId: who });
+        }
+        // Surrender is only legal pre-action on a fresh, never-split hand.
+        if (!p.parentSlotId && !hasSplitSibling) {
+          acts.push({ kind: 'surrender', playerId: who });
+        }
       }
       return acts;
     }
@@ -289,9 +304,58 @@ export const blackjackEngine: GameEngine<BlackjackState, BlackjackAction, Blackj
         if (p.cards.length !== 2) {
           throw new Error('blackjack: can only surrender on the first two cards');
         }
+        if (p.parentSlotId || next.players.some((o) => o.parentSlotId === p.id)) {
+          throw new Error('blackjack: cannot surrender after a split');
+        }
         p.status = 'surrendered';
         next.toAct = nextActive(next);
         if (!next.toAct) return startDealerPhase(next);
+        return next;
+      }
+
+      case 'split': {
+        if (next.phase !== 'playing' || next.toAct !== action.playerId) {
+          throw new Error('blackjack: not your turn');
+        }
+        const p = findPlayer(next, action.playerId);
+        if (p.cards.length !== 2) {
+          throw new Error('blackjack: can only split on a fresh 2-card hand');
+        }
+        if (p.cards[0].rank !== p.cards[1].rank) {
+          throw new Error('blackjack: split requires two same-rank cards');
+        }
+        if (p.parentSlotId) {
+          throw new Error('blackjack: resplits are not allowed');
+        }
+        const wasAces = p.cards[0].rank === 'Ace';
+
+        // Lift the second card off the original hand, then draw one new
+        // card for each. Standard dealing order: original is dealt first,
+        // then the split sibling.
+        const lifted = p.cards.pop();
+        if (!lifted) throw new Error('blackjack: split: missing second card');
+        p.cards.push(draw(next.deck));
+        const sibling: PlayerSlot = {
+          id: `${p.id}:split:1`,
+          cards: [lifted, draw(next.deck)],
+          bet: p.bet,
+          doubled: false,
+          status: wasAces ? 'stood' : 'in_hand',
+          insuranceBet: null,
+          parentSlotId: p.id,
+        };
+        if (wasAces) {
+          // Standard rule: split aces get exactly one card each, no more.
+          p.status = 'stood';
+        }
+        // Insert sibling immediately after the original so play order is preserved.
+        const idx = next.players.findIndex((pl) => pl.id === p.id);
+        next.players.splice(idx + 1, 0, sibling);
+
+        if (wasAces) {
+          next.toAct = nextActive(next);
+          if (!next.toAct) return startDealerPhase(next);
+        }
         return next;
       }
 
@@ -309,6 +373,24 @@ export const blackjackEngine: GameEngine<BlackjackState, BlackjackAction, Blackj
     if (!cloned.dealerCardsRevealed && cloned.dealerHand.length > 0) {
       cloned.dealerHand[0] = { suit: 'hidden', rank: 'hidden' };
     }
+
+    let legalActions: BlackjackAction[] = [];
+    if (viewer !== 'spectator') {
+      if (state.phase === 'awaiting_bets' || state.phase === 'insurance_offered') {
+        // Pre-deal phases reference the viewer's primary slot directly.
+        legalActions = blackjackEngine.legalActions(state, viewer);
+      } else if (state.phase === 'playing') {
+        // After splitting, the viewer may own multiple slots. Pick whichever
+        // is currently to act and emit *that* slot's legal actions.
+        const acting = state.players.find(
+          (p) => (p.id === viewer || p.parentSlotId === viewer) && p.id === state.toAct,
+        );
+        if (acting) {
+          legalActions = blackjackEngine.legalActions(state, acting.id);
+        }
+      }
+    }
+
     return {
       type: 'blackjack',
       config: cloned.config,
@@ -317,7 +399,7 @@ export const blackjackEngine: GameEngine<BlackjackState, BlackjackAction, Blackj
       players: cloned.players,
       phase: cloned.phase,
       toAct: cloned.toAct,
-      legalActions: viewer === 'spectator' ? [] : blackjackEngine.legalActions(state, viewer),
+      legalActions,
     };
   },
 

@@ -150,29 +150,61 @@ export async function submitAction(params: {
 
     const prevState: BlackjackState = BlackjackStateSchema.parse(handSeat.hand.data);
 
+    // After a split, the viewer owns multiple slots; per-turn actions
+    // (hit/stay/double/surrender/split) target whichever of the viewer's
+    // slots is currently to act, even though the form only carries the
+    // primary handSeatId.
+    let actionToApply: BlackjackAction = params.action;
+    const turnActions = new Set(['hit', 'stay', 'double_down', 'surrender', 'split']);
+    if (turnActions.has(params.action.kind)) {
+      const acting = prevState.players.find(
+        (p) =>
+          (p.id === params.handSeatId || p.parentSlotId === params.handSeatId) &&
+          p.id === prevState.toAct,
+      );
+      if (acting && acting.id !== (params.action as { playerId?: string }).playerId) {
+        actionToApply = {
+          ...(params.action as { playerId: string }),
+          playerId: acting.id,
+        } as BlackjackAction;
+      }
+    }
+
     // Turn / legality enforcement. `place_bet` has variable amount so it's
     // validated inside the engine (amount bounds + status check).
-    if (params.action.kind !== 'place_bet') {
-      const legal = blackjackEngine.legalActions(prevState, params.handSeatId);
-      const isLegal = legal.some((a) => a.kind === params.action.kind);
+    if (actionToApply.kind !== 'place_bet') {
+      const actorSlotId =
+        actionToApply.kind === 'dealer_play' || actionToApply.kind === 'deal_initial'
+          ? null
+          : (actionToApply as { playerId: string }).playerId;
+      const legal = blackjackEngine.legalActions(prevState, actorSlotId ?? params.handSeatId);
+      const isLegal = legal.some((a) => a.kind === actionToApply.kind);
       if (!isLegal) {
-        throw new Error(`action '${params.action.kind}' is not currently legal for this seat`);
+        throw new Error(`action '${actionToApply.kind}' is not currently legal for this seat`);
       }
     }
 
     // Apply the action.
-    const stateAfterPlayer = blackjackEngine.applyAction(prevState, params.handSeatId, params.action, defaultRng);
+    const stateAfterPlayer = blackjackEngine.applyAction(
+      prevState,
+      (actionToApply as { playerId?: string }).playerId ?? params.handSeatId,
+      actionToApply,
+      defaultRng,
+    );
 
     // Record the player's action as an event in the same transaction.
+    // `actor_id` always references the real hand_seat row (the user's
+    // primary seat) so the FK stays valid; the payload retains the typed
+    // BlackjackAction including the (possibly retargeted) slot id.
     const playerSeq = await appendHandEvent(
       handSeat.hand_id,
-      { action: params.action.kind, actorId: params.handSeatId, payload: params.action },
+      { action: actionToApply.kind, actorId: params.handSeatId, payload: actionToApply },
       tx,
     );
     pendingBroadcasts.push({
-      action: params.action.kind,
+      action: actionToApply.kind,
       actor_id: params.handSeatId,
-      payload: params.action,
+      payload: actionToApply,
       sequence: playerSeq,
       state_after: stateAfterPlayer,
     });
@@ -199,7 +231,7 @@ export async function submitAction(params: {
     }
 
     // Money: reserve increases + terminal settlement.
-    await applyMoneyMoves(prevState, nextState, params.handSeatId, handSeat.user_id, tx);
+    await applyMoneyMoves(prevState, nextState, params.handSeatId, handSeat.user_id, actionToApply, tx);
 
     // Persist new engine state.
     await tx.hand.update({
@@ -207,17 +239,9 @@ export async function submitAction(params: {
       data: { data: nextState as unknown as Prisma.JsonObject, updated_at: new Date() },
     });
 
-    // Denormalize per-player cards for the current UI's read path.
-    for (const player of nextState.players) {
-      await tx.hand_seat.update({
-        where: { id: player.id },
-        data: { data: { cards: player.cards } as unknown as Prisma.JsonObject },
-      });
-    }
-
-    // Audit-trail compat (hand_seat_bet, hand_seat_round). Replaced by the
-    // event log in task #9.
-    await writeAuditTrail(prevState, nextState, params.handSeatId, params.action, tx);
+    // Audit-trail compat (hand_seat_bet, hand_seat_round). Subsumed by the
+    // event log for replay; kept until the legacy tables are dropped.
+    await writeAuditTrail(prevState, nextState, params.handSeatId, actionToApply, tx);
   });
 
   // Publish post-commit so subscribers can never see a rolled-back event.
@@ -226,35 +250,55 @@ export async function submitAction(params: {
   }
 }
 
+/** Sum the bets across all slots that belong to a single user (including splits). */
+function sumReservedFor(state: BlackjackState, handSeatId: string): number {
+  return state.players
+    .filter((p) => p.id === handSeatId || p.parentSlotId === handSeatId)
+    .reduce((s, p) => s + p.bet, 0);
+}
+
+/** Slot id → hand_seat id (the parent hand_seat for splits, self otherwise). */
+function ownerHandSeatId(state: BlackjackState, slotId: string): string {
+  const slot = state.players.find((p) => p.id === slotId);
+  return slot?.parentSlotId ?? slotId;
+}
+
 async function applyMoneyMoves(
   prev: BlackjackState,
   next: BlackjackState,
   actingHandSeatId: string,
   actingUserId: string,
+  action: BlackjackAction,
   tx: PrismaTransactionClient,
 ): Promise<void> {
-  const prevPlayer = prev.players.find((p) => p.id === actingHandSeatId);
-  const nextPlayer = next.players.find((p) => p.id === actingHandSeatId);
-
-  // 1. Reserve any increase in the acting player's main bet (place_bet,
-  //    double_down). Atomic UPDATE rejects insufficient funds.
-  const prevBet = prevPlayer?.bet ?? 0;
-  const nextBet = nextPlayer?.bet ?? 0;
-  if (nextBet > prevBet) {
-    const isFirstBet = prevBet === 0;
+  // 1. Reserve any *increase* in total chips committed by the acting user.
+  //    Place_bet bumps a single slot's bet from 0; double_down doubles a
+  //    slot's bet; split adds a new sibling slot with an equal bet. Summing
+  //    bets across all of the user's slots (`id === handSeatId` plus any
+  //    `parentSlotId === handSeatId`) lets one diff handle all three.
+  const prevReserved = sumReservedFor(prev, actingHandSeatId);
+  const nextReserved = sumReservedFor(next, actingHandSeatId);
+  if (nextReserved > prevReserved) {
+    const noteByAction: Record<string, string> = {
+      place_bet: 'reserve:place_bet',
+      double_down: 'reserve:double_down',
+      split: 'reserve:split',
+    };
     await recordMoneyTransaction(
       {
         userId: actingUserId,
         type: 'debit',
-        amount: nextBet - prevBet,
+        amount: nextReserved - prevReserved,
         gamePlayerId: actingHandSeatId,
-        note: isFirstBet ? 'reserve:place_bet' : 'reserve:double_down',
+        note: noteByAction[action.kind] ?? `reserve:${action.kind}`,
       },
       tx,
     );
   }
 
   // 2. Reserve insurance the moment the acting player takes it.
+  const prevPlayer = prev.players.find((p) => p.id === actingHandSeatId);
+  const nextPlayer = next.players.find((p) => p.id === actingHandSeatId);
   if (
     nextPlayer?.insuranceBet &&
     nextPlayer.insuranceBet > 0 &&
@@ -272,8 +316,9 @@ async function applyMoneyMoves(
     );
   }
 
-  // 3. On terminal transition, credit each player `reserve + delta` on the
-  //    main bet, then credit insurance winners 3× their insurance bet.
+  // 3. On terminal transition, credit each slot `reserve + delta`. Split
+  //    siblings settle independently but route their credit through the
+  //    parent hand_seat (the only one that exists in the DB).
   if (!blackjackEngine.isTerminal(prev) && blackjackEngine.isTerminal(next)) {
     for (const order of blackjackEngine.settle(next)) {
       const player = next.players.find((p) => p.id === order.playerId);
@@ -284,13 +329,14 @@ async function applyMoneyMoves(
       }
       if (credit === 0) continue;
 
-      const userId = await resolveUserId(order.playerId, actingHandSeatId, actingUserId, tx);
+      const ledgerHandSeatId = ownerHandSeatId(next, order.playerId);
+      const userId = await resolveUserId(ledgerHandSeatId, actingHandSeatId, actingUserId, tx);
       await recordMoneyTransaction(
         {
           userId,
           type: 'credit',
           amount: credit,
-          gamePlayerId: order.playerId,
+          gamePlayerId: ledgerHandSeatId,
           note: `settle:${order.reason}`,
         },
         tx,
@@ -303,14 +349,14 @@ async function applyMoneyMoves(
     if (dealerNaturalBJ) {
       for (const player of next.players) {
         if (player.insuranceBet && player.insuranceBet > 0) {
-          const userId = await resolveUserId(player.id, actingHandSeatId, actingUserId, tx);
+          const ledgerHandSeatId = ownerHandSeatId(next, player.id);
+          const userId = await resolveUserId(ledgerHandSeatId, actingHandSeatId, actingUserId, tx);
           await recordMoneyTransaction(
             {
               userId,
               type: 'credit',
-              // 2:1 payout returns 3× the wager (reserve + 2× winnings).
               amount: 3 * player.insuranceBet,
-              gamePlayerId: player.id,
+              gamePlayerId: ledgerHandSeatId,
               note: 'settle:insurance_win',
             },
             tx,
@@ -381,7 +427,8 @@ async function writeAuditTrail(
     });
   }
 
-  // Terminal transition → write final win/lose/push round per player.
+  // Terminal transition → write final win/lose/push round per slot. Split
+  // siblings route under the parent's hand_seat (the FK target).
   if (!blackjackEngine.isTerminal(prev) && blackjackEngine.isTerminal(next)) {
     for (const player of next.players) {
       const finalAction = (() => {
@@ -402,14 +449,15 @@ async function writeAuditTrail(
       })();
       if (!finalAction) continue;
 
+      const auditSeatId = player.parentSlotId ?? player.id;
       const rounds = await tx.hand_seat_round.findMany({
-        where: { hand_seat_id: player.id },
+        where: { hand_seat_id: auditSeatId },
         orderBy: { round: 'desc' },
         take: 1,
       });
       const nextRound = (rounds[0]?.round ?? 0) + 1;
       await tx.hand_seat_round.create({
-        data: { hand_seat_id: player.id, round: nextRound, action: finalAction },
+        data: { hand_seat_id: auditSeatId, round: nextRound, action: finalAction },
       });
     }
   }
@@ -449,6 +497,8 @@ export function parseBlackjackActionFromForm(
       return { kind: 'stay', playerId: handSeatId };
     case 'double down':
       return { kind: 'double_down', playerId: handSeatId };
+    case 'split':
+      return { kind: 'split', playerId: handSeatId };
     case 'surrender':
       return { kind: 'surrender', playerId: handSeatId };
     default:

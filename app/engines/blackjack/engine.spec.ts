@@ -15,7 +15,7 @@ function withDeck(deck: CardData[], overrides: Partial<BlackjackState> = {}): Bl
     deck: [...deck],
     dealerHand: [],
     dealerCardsRevealed: false,
-    players: [{ id: 'p1', cards: [], bet: 0, doubled: false, status: 'awaiting_bet', insuranceBet: null }],
+    players: [{ id: 'p1', cards: [], bet: 0, doubled: false, status: 'awaiting_bet', insuranceBet: null, parentSlotId: null }],
     phase: 'awaiting_bets',
     toAct: null,
     ...overrides,
@@ -157,7 +157,7 @@ describe('blackjackEngine hit/stay/double/surrender', () => {
       deck: [...deck],
       dealerHand: [c('hearts','7'), c('diamonds','9')], // 16
       dealerCardsRevealed: false,
-      players: [{ id: 'p1', cards: [...playerCards], bet: 10, doubled: false, status: 'in_hand', insuranceBet: null }],
+      players: [{ id: 'p1', cards: [...playerCards], bet: 10, doubled: false, status: 'in_hand', insuranceBet: null, parentSlotId: null }],
       phase: 'playing',
       toAct: 'p1',
     };
@@ -214,6 +214,76 @@ describe('blackjackEngine hit/stay/double/surrender', () => {
     expect(() =>
       blackjackEngine.applyAction(state, 'p2', { kind: 'hit', playerId: 'p2' }, defaultRng),
     ).toThrow(/turn/);
+  });
+});
+
+describe('blackjackEngine split', () => {
+  function splitState(playerCards: CardData[], deck: CardData[]): BlackjackState {
+    return {
+      type: 'blackjack',
+      config: STATE_CONFIG,
+      deck: [...deck],
+      dealerHand: [c('hearts', '7'), c('diamonds', '9')],
+      dealerCardsRevealed: false,
+      players: [{ id: 'p1', cards: [...playerCards], bet: 10, doubled: false, status: 'in_hand', insuranceBet: null, parentSlotId: null }],
+      phase: 'playing',
+      toAct: 'p1',
+    };
+  }
+
+  it('legalActions includes split when first two cards are same rank', () => {
+    const state = splitState([c('hearts', '8'), c('spades', '8')], []);
+    const legal = blackjackEngine.legalActions(state, 'p1');
+    expect(legal.map((a) => a.kind)).toContain('split');
+  });
+
+  it('legalActions does not include split when cards differ in rank', () => {
+    const state = splitState([c('hearts', '10'), c('spades', 'Jack')], []);
+    const legal = blackjackEngine.legalActions(state, 'p1');
+    expect(legal.map((a) => a.kind)).not.toContain('split');
+  });
+
+  it('creates a sibling slot with parentSlotId pointing back to the original', () => {
+    // Player has [8♥, 8♠]. Top of deck (pop order): 3♣ (to original), 5♦ (to sibling).
+    const state = splitState([c('hearts', '8'), c('spades', '8')], [c('diamonds', '5'), c('clubs', '3')]);
+    const next = blackjackEngine.applyAction(state, 'p1', { kind: 'split', playerId: 'p1' }, defaultRng);
+    expect(next.players).toHaveLength(2);
+    const [orig, sibling] = next.players;
+    expect(orig.id).toBe('p1');
+    expect(orig.parentSlotId).toBeNull();
+    expect(orig.cards.map((c) => c.rank)).toEqual(['8', '3']);
+    expect(sibling.id).toBe('p1:split:1');
+    expect(sibling.parentSlotId).toBe('p1');
+    expect(sibling.cards.map((c) => c.rank)).toEqual(['8', '5']);
+    expect(sibling.bet).toBe(orig.bet);
+    expect(next.toAct).toBe('p1');
+  });
+
+  it('splitting aces sets both hands to stood (one-card-only rule)', () => {
+    const state = splitState([c('hearts', 'Ace'), c('spades', 'Ace')], [c('diamonds', '5'), c('clubs', '3')]);
+    const next = blackjackEngine.applyAction(state, 'p1', { kind: 'split', playerId: 'p1' }, defaultRng);
+    expect(next.players[0].status).toBe('stood');
+    expect(next.players[1].status).toBe('stood');
+    expect(next.phase).toBe('dealer');
+  });
+
+  it('rejects resplit (parentSlotId guard)', () => {
+    const state = splitState([c('hearts', '8'), c('spades', '8')], [c('diamonds', '5'), c('clubs', '3')]);
+    const afterSplit = blackjackEngine.applyAction(state, 'p1', { kind: 'split', playerId: 'p1' }, defaultRng);
+    // Mark the sibling to act with same-rank cards then attempt resplit.
+    afterSplit.players[1].cards = [c('hearts', '9'), c('spades', '9')];
+    afterSplit.toAct = afterSplit.players[1].id;
+    expect(() =>
+      blackjackEngine.applyAction(afterSplit, afterSplit.players[1].id, { kind: 'split', playerId: afterSplit.players[1].id }, defaultRng),
+    ).toThrow(/resplits/);
+  });
+
+  it('rejects surrender after splitting', () => {
+    const state = splitState([c('hearts', '8'), c('spades', '8')], [c('diamonds', '5'), c('clubs', '3')]);
+    const afterSplit = blackjackEngine.applyAction(state, 'p1', { kind: 'split', playerId: 'p1' }, defaultRng);
+    expect(() =>
+      blackjackEngine.applyAction(afterSplit, 'p1', { kind: 'surrender', playerId: 'p1' }, defaultRng),
+    ).toThrow(/cannot surrender after a split/);
   });
 });
 
@@ -286,7 +356,7 @@ describe('blackjackEngine dealer soft 17 (H17 vs S17)', () => {
       deck: [...deck],
       dealerHand: [...dealerHand],
       dealerCardsRevealed: false,
-      players: [{ id: 'p1', cards: [c('clubs', '10'), c('clubs', '7')], bet: 10, doubled: false, status: 'stood', insuranceBet: null }],
+      players: [{ id: 'p1', cards: [c('clubs', '10'), c('clubs', '7')], bet: 10, doubled: false, status: 'stood', insuranceBet: null, parentSlotId: null }],
       phase: 'dealer',
       toAct: null,
     };
@@ -335,7 +405,7 @@ describe('blackjackEngine dealer_play', () => {
       deck: [c('spades','King')],
       dealerHand: [c('hearts','6'), c('diamonds','10')],
       dealerCardsRevealed: false,
-      players: [{ id: 'p1', cards: [c('clubs','10'), c('clubs','9')], bet: 10, doubled: false, status: 'stood', insuranceBet: null }],
+      players: [{ id: 'p1', cards: [c('clubs','10'), c('clubs','9')], bet: 10, doubled: false, status: 'stood', insuranceBet: null, parentSlotId: null }],
       phase: 'dealer',
       toAct: null,
     };
@@ -352,7 +422,7 @@ describe('blackjackEngine dealer_play', () => {
       deck: [],
       dealerHand: [c('hearts','10'), c('diamonds','7')], // 17
       dealerCardsRevealed: false,
-      players: [{ id: 'p1', cards: [c('clubs','10'), c('clubs','6')], bet: 10, doubled: false, status: 'stood', insuranceBet: null }],
+      players: [{ id: 'p1', cards: [c('clubs','10'), c('clubs','6')], bet: 10, doubled: false, status: 'stood', insuranceBet: null, parentSlotId: null }],
       phase: 'dealer',
       toAct: null,
     };
@@ -367,7 +437,7 @@ describe('blackjackEngine dealer_play', () => {
       deck: [],
       dealerHand: [c('hearts','10'), c('diamonds','8')], // 18
       dealerCardsRevealed: false,
-      players: [{ id: 'p1', cards: [c('clubs','King'), c('clubs','8')], bet: 10, doubled: false, status: 'stood', insuranceBet: null }],
+      players: [{ id: 'p1', cards: [c('clubs','King'), c('clubs','8')], bet: 10, doubled: false, status: 'stood', insuranceBet: null, parentSlotId: null }],
       phase: 'dealer',
       toAct: null,
     };
@@ -384,7 +454,7 @@ describe('blackjackEngine.settle', () => {
       deck: [],
       dealerHand: [],
       dealerCardsRevealed: true,
-      players: [{ id: 'p1', cards: [], bet: 10, doubled: false, status, insuranceBet: null }],
+      players: [{ id: 'p1', cards: [], bet: 10, doubled: false, status, insuranceBet: null, parentSlotId: null }],
       phase: 'settled',
       toAct: null,
     };
@@ -432,8 +502,8 @@ describe('blackjackEngine chip conservation invariant', () => {
       dealerHand: [],
       dealerCardsRevealed: true,
       players: [
-        { id: 'a', cards: [], bet: 10, doubled: false, status: 'pushed', insuranceBet: null },
-        { id: 'b', cards: [], bet: 20, doubled: false, status: 'pushed', insuranceBet: null },
+        { id: 'a', cards: [], bet: 10, doubled: false, status: 'pushed', insuranceBet: null, parentSlotId: null },
+        { id: 'b', cards: [], bet: 20, doubled: false, status: 'pushed', insuranceBet: null, parentSlotId: null },
       ],
       phase: 'settled',
       toAct: null,

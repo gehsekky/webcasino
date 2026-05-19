@@ -49,6 +49,12 @@ export const PlayerSlotSchema = z.object({
    * Fields default to `null` so pre-insurance hand snapshots remain parseable.
    */
   insuranceBet: z.number().int().nonnegative().nullable().default(null),
+  /**
+   * Set on a *split* sibling — the id of the original slot it was split
+   * from. Null for original (top-level) slots. Settlement looks up the
+   * owning user via the parent slot since the sibling has no hand_seat row.
+   */
+  parentSlotId: z.string().nullable().default(null),
 });
 export type PlayerStatus = z.infer<typeof PlayerStatusSchema>;
 export type Phase = z.infer<typeof PhaseSchema>;

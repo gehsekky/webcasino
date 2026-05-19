@@ -33,7 +33,14 @@ export default function HandView({
   gameType,
 }: HandViewProps) {
   const { view, status } = useHandView(handId, initialView);
-  const viewerSlot = view.players.find((p) => p.id === handSeatId);
+  // After splitting, the viewer owns multiple slots. The "primary" slot is
+  // the one tied to their hand_seat row; siblings are split children.
+  const viewerSlots = view.players.filter(
+    (p) => p.id === handSeatId || p.parentSlotId === handSeatId,
+  );
+  const primarySlot = viewerSlots.find((s) => s.id === handSeatId);
+  const isViewerActing = viewerSlots.some((s) => s.id === view.toAct);
+  const hasSplit = viewerSlots.length > 1;
 
   return (
     <main className="container mx-auto px-4 sm:px-6 py-6 sm:py-10">
@@ -54,19 +61,24 @@ export default function HandView({
         <DealerSection cards={view.dealerHand} revealed={view.dealerCardsRevealed} />
 
         <div className="space-y-3">
-          {view.players.map((player) => (
-            <PlayerSection
-              key={player.id}
-              player={player}
-              isViewer={player.id === handSeatId}
-              isToAct={view.toAct === player.id}
-              viewerName={viewerName}
-            />
-          ))}
+          {view.players.map((player) => {
+            const ownedIdx = viewerSlots.findIndex((s) => s.id === player.id);
+            const isViewer = ownedIdx !== -1;
+            return (
+              <PlayerSection
+                key={player.id}
+                player={player}
+                isViewer={isViewer}
+                isToAct={view.toAct === player.id}
+                viewerName={viewerName}
+                handLabel={isViewer && hasSplit ? `Hand ${ownedIdx + 1}` : undefined}
+              />
+            );
+          })}
         </div>
 
         <div className="pt-2">
-          {view.phase === 'awaiting_bets' && viewerSlot?.status === 'awaiting_bet' && (
+          {view.phase === 'awaiting_bets' && primarySlot?.status === 'awaiting_bet' && (
             <BetForm
               minimumBet={view.config.minimumBet}
               maximumBet={view.config.maximumBet}
@@ -74,21 +86,21 @@ export default function HandView({
             />
           )}
 
-          {view.phase === 'insurance_offered' && viewerSlot && viewerSlot.insuranceBet === null && (
-            <InsuranceForm originalBet={viewerSlot.bet} balance={viewerBalance} />
+          {view.phase === 'insurance_offered' && primarySlot && primarySlot.insuranceBet === null && (
+            <InsuranceForm originalBet={primarySlot.bet} balance={viewerBalance} />
           )}
 
-          {view.phase === 'insurance_offered' && viewerSlot?.insuranceBet !== null && (
+          {view.phase === 'insurance_offered' && primarySlot?.insuranceBet !== null && (
             <p className="text-center text-emerald-200/80 italic">
               waiting for other seats to decide on insurance…
             </p>
           )}
 
-          {view.phase === 'playing' && view.toAct === handSeatId && (
+          {view.phase === 'playing' && isViewerActing && (
             <ActionBar legalActions={view.legalActions} />
           )}
 
-          {view.phase === 'playing' && view.toAct !== handSeatId && (
+          {view.phase === 'playing' && !isViewerActing && (
             <p className="text-center text-emerald-200/80 italic">
               waiting for another seat to act…
             </p>
@@ -100,8 +112,8 @@ export default function HandView({
             </p>
           )}
 
-          {view.phase === 'settled' && viewerSlot && (
-            <OutcomeBanner viewerSlot={viewerSlot} area={area} gameType={gameType} />
+          {view.phase === 'settled' && viewerSlots.length > 0 && (
+            <OutcomeBanner viewerSlots={viewerSlots} area={area} gameType={gameType} />
           )}
         </div>
       </div>
