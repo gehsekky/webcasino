@@ -8,6 +8,7 @@ import { BlackjackStateSchema, type BlackjackState } from 'lib/gameState';
 import type { BlackjackAction } from 'engines/blackjack/types';
 import { DEFAULT_MAXIMUM_BET, DEFAULT_MINIMUM_BET } from 'constants/index';
 import { appendHandEvent, HAND_INITIALIZED } from 'lib/handEvents';
+import { broadcastBus, type BroadcastedHandEvent } from 'lib/broadcastBus.server';
 
 /**
  * Engine-backed action layer. All game-state transitions flow through
@@ -38,7 +39,9 @@ export async function createNewHand(params: {
   const minimumBet = params.minimumBet ?? DEFAULT_MINIMUM_BET;
   const maximumBet = params.maximumBet ?? DEFAULT_MAXIMUM_BET;
 
-  return prisma.$transaction(async (tx) => {
+  const pendingBroadcasts: BroadcastedHandEvent[] = [];
+
+  const result = await prisma.$transaction(async (tx) => {
     const table = await tx.casino_table.create({
       data: {
         game_type: params.gameType,
@@ -88,14 +91,28 @@ export async function createNewHand(params: {
 
     // Bootstrap the event log with the initial state so the hand can be
     // replayed deterministically from sequence 1.
-    await appendHandEvent(
+    const bootstrapSeq = await appendHandEvent(
       handId,
       { action: HAND_INITIALIZED, actorId: null, payload: { initialState } },
       tx,
     );
 
+    pendingBroadcasts.push({
+      action: HAND_INITIALIZED,
+      actor_id: null,
+      payload: { initialState },
+      sequence: bootstrapSeq,
+      state_after: initialState,
+    });
+
     return { handId, handSeatId, tableId: table.id, seatId: seat.id };
   });
+
+  // Publish post-commit so subscribers can never see a rolled-back event.
+  for (const ev of pendingBroadcasts) {
+    broadcastBus.publish(result.handId, ev);
+  }
+  return result;
 }
 
 /**
@@ -113,6 +130,9 @@ export async function submitAction(params: {
   handSeatId: string;
   action: BlackjackAction;
 }): Promise<void> {
+  const pendingBroadcasts: BroadcastedHandEvent[] = [];
+  let handIdForBroadcast = '';
+
   await prisma.$transaction(async (tx) => {
     const handSeat = await tx.hand_seat.findUnique({
       where: { id: params.handSeatId },
@@ -121,6 +141,7 @@ export async function submitAction(params: {
     if (!handSeat) {
       throw new Error('hand_seat not found');
     }
+    handIdForBroadcast = handSeat.hand_id;
 
     const prevState: BlackjackState = BlackjackStateSchema.parse(handSeat.hand.data);
 
@@ -135,26 +156,41 @@ export async function submitAction(params: {
     }
 
     // Apply the action.
-    let nextState = blackjackEngine.applyAction(prevState, params.handSeatId, params.action, defaultRng);
+    const stateAfterPlayer = blackjackEngine.applyAction(prevState, params.handSeatId, params.action, defaultRng);
 
     // Record the player's action as an event in the same transaction.
-    await appendHandEvent(
+    const playerSeq = await appendHandEvent(
       handSeat.hand_id,
       { action: params.action.kind, actorId: params.handSeatId, payload: params.action },
       tx,
     );
+    pendingBroadcasts.push({
+      action: params.action.kind,
+      actor_id: params.handSeatId,
+      payload: params.action,
+      sequence: playerSeq,
+      state_after: stateAfterPlayer,
+    });
 
     // After a player action, if all seats are done acting the engine flips
     // to 'dealer'. Run the dealer turn in the same transaction so settle
     // also fires atomically with the player action.
+    let nextState = stateAfterPlayer;
     if (nextState.phase === 'dealer') {
       const dealerAction: BlackjackAction = { kind: 'dealer_play' };
       nextState = blackjackEngine.applyAction(nextState, 'dealer', dealerAction, defaultRng);
-      await appendHandEvent(
+      const dealerSeq = await appendHandEvent(
         handSeat.hand_id,
         { action: dealerAction.kind, actorId: null, payload: dealerAction },
         tx,
       );
+      pendingBroadcasts.push({
+        action: dealerAction.kind,
+        actor_id: null,
+        payload: dealerAction,
+        sequence: dealerSeq,
+        state_after: nextState,
+      });
     }
 
     // Money: reserve increases + terminal settlement.
@@ -178,6 +214,11 @@ export async function submitAction(params: {
     // event log in task #9.
     await writeAuditTrail(prevState, nextState, params.handSeatId, params.action, tx);
   });
+
+  // Publish post-commit so subscribers can never see a rolled-back event.
+  for (const ev of pendingBroadcasts) {
+    broadcastBus.publish(handIdForBroadcast, ev);
+  }
 }
 
 async function applyMoneyMoves(
