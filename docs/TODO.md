@@ -47,7 +47,7 @@ Roughly ordered by ROI within each section.
 - [x] **Add CI.** `.github/workflows/ci.yml` runs `npm ci`, `typecheck`, `lint`, and `test` on push to main and on PRs, using Node from `.nvmrc` (22.1.0). `concurrency.cancel-in-progress` so stacked pushes don't waste minutes.
 - [ ] **Add Prettier.** Inconsistencies like `(param : Type)` (space before colon) would resolve automatically; pairs well with `eslint-config-prettier`.
 - [ ] **Multi-stage Dockerfile.** Current image ships devDependencies; build in one stage, copy `build/` + `node_modules` (with `--omit=dev`) into a slimmer runtime stage.
-- [ ] **Move `prisma generate` out of `entrypoint.sh`** into the Dockerfile build step. Generating at container start delays cold boot and ties prod startup to Prisma's binary download path.
+- [x] **Move `prisma generate` out of `entrypoint.sh`** into the Dockerfile build step — handled by the `postinstall: prisma generate` hook in package.json, which fires during `npm ci` at image build time. Dockerfile now copies `prisma/` alongside `package*.json` before `npm ci` so the hook can resolve `schema.prisma`. Entrypoint is now just `npm run start`.
 - [x] **Expand `.dockerignore`.** Now excludes `.git`, `.cache`, `build`, `.env(*)` (with an `.env.example` allowlist), `*.md`, `.github`, IDE dirs, and `coverage` in addition to `node_modules`.
 - [x] **Remove `postcss.config.cjs` from `tsconfig.json` `include`** — dropped; the toolchain reads it directly as CommonJS, the include entry was a no-op.
 - [ ] **Decide on Node version.** `.nvmrc` says `v22.1.0`, `Dockerfile` uses `node:22.1-alpine`, `package.json` engines says `>=18.0.0`. Align them (probably pin engines to `>=22`).
