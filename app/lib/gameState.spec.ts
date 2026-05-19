@@ -1,12 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  CardSchema,
-  BlackjackStateSchema,
-  GamePlayerStateSchema,
-  GameStateSchema,
-  parseBlackjackState,
-  parseGamePlayerState,
-} from './gameState';
+import { CardSchema, BlackjackStateSchema, GameStateSchema } from './gameState';
 
 describe('CardSchema', () => {
   it('accepts a valid card', () => {
@@ -87,27 +80,7 @@ describe('BlackjackStateSchema', () => {
   });
 
   it('rejects null', () => {
-    expect(() => parseBlackjackState(null)).toThrow();
-  });
-});
-
-describe('GamePlayerStateSchema', () => {
-  it('accepts an empty hand', () => {
-    expect(() => GamePlayerStateSchema.parse({ cards: [] })).not.toThrow();
-  });
-
-  it('accepts a hand of valid cards', () => {
-    expect(() =>
-      GamePlayerStateSchema.parse({ cards: [{ suit: 'clubs', rank: '10' }] }),
-    ).not.toThrow();
-  });
-
-  it('rejects missing cards field', () => {
-    expect(() => parseGamePlayerState({})).toThrow();
-  });
-
-  it('rejects null', () => {
-    expect(() => parseGamePlayerState(null)).toThrow();
+    expect(() => BlackjackStateSchema.parse(null)).toThrow();
   });
 });
 

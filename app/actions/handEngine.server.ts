@@ -127,9 +127,8 @@ export async function createNewHand(params: {
  *  - applies the action via `engine.applyAction`,
  *  - auto-advances the dealer phase if the next state is `dealer`,
  *  - schedules money movements (reserve on bet, settle on terminal),
- *  - persists the new state and syncs `hand_seat.data.cards`,
- *  - writes audit rows (`hand_seat_bet`, `hand_seat_round`) for current
- *    components; the upcoming event log (task #9) will subsume these.
+ *  - appends events for replay / SSE broadcast,
+ *  - persists the new state snapshot.
  */
 export async function submitAction(params: {
   handSeatId: string;
@@ -238,10 +237,6 @@ export async function submitAction(params: {
       where: { id: handSeat.hand_id },
       data: { data: nextState as unknown as Prisma.JsonObject, updated_at: new Date() },
     });
-
-    // Audit-trail compat (hand_seat_bet, hand_seat_round). Subsumed by the
-    // event log for replay; kept until the legacy tables are dropped.
-    await writeAuditTrail(prevState, nextState, params.handSeatId, actionToApply, tx);
   });
 
   // Publish post-commit so subscribers can never see a rolled-back event.
@@ -380,87 +375,6 @@ async function resolveUserId(
   });
   if (!seat) throw new Error(`could not resolve user for hand_seat ${handSeatId}`);
   return seat.user_id;
-}
-
-async function writeAuditTrail(
-  prev: BlackjackState,
-  next: BlackjackState,
-  handSeatId: string,
-  action: BlackjackAction,
-  tx: PrismaTransactionClient,
-): Promise<void> {
-  // place_bet → audit as a hand_seat_bet row of type 'initial'.
-  if (action.kind === 'place_bet') {
-    await tx.hand_seat_bet.create({
-      data: {
-        hand_seat_id: handSeatId,
-        amount: action.amount,
-        type: 'initial',
-      },
-    });
-  }
-
-  // Player actions → hand_seat_round row.
-  const auditAction = (() => {
-    switch (action.kind) {
-      case 'hit':
-        return 'hit';
-      case 'stay':
-        return 'stay';
-      case 'double_down':
-        return 'double down';
-      case 'surrender':
-        return 'surrender';
-      default:
-        return null;
-    }
-  })();
-  if (auditAction) {
-    const rounds = await tx.hand_seat_round.findMany({
-      where: { hand_seat_id: handSeatId },
-      orderBy: { round: 'desc' },
-      take: 1,
-    });
-    const next = (rounds[0]?.round ?? 0) + 1;
-    await tx.hand_seat_round.create({
-      data: { hand_seat_id: handSeatId, round: next, action: auditAction },
-    });
-  }
-
-  // Terminal transition → write final win/lose/push round per slot. Split
-  // siblings route under the parent's hand_seat (the FK target).
-  if (!blackjackEngine.isTerminal(prev) && blackjackEngine.isTerminal(next)) {
-    for (const player of next.players) {
-      const finalAction = (() => {
-        switch (player.status) {
-          case 'won':
-          case 'blackjack':
-            return 'win';
-          case 'lost':
-          case 'busted':
-            return 'lose';
-          case 'pushed':
-            return 'push';
-          case 'surrendered':
-            return 'lose';
-          default:
-            return null;
-        }
-      })();
-      if (!finalAction) continue;
-
-      const auditSeatId = player.parentSlotId ?? player.id;
-      const rounds = await tx.hand_seat_round.findMany({
-        where: { hand_seat_id: auditSeatId },
-        orderBy: { round: 'desc' },
-        take: 1,
-      });
-      const nextRound = (rounds[0]?.round ?? 0) + 1;
-      await tx.hand_seat_round.create({
-        data: { hand_seat_id: auditSeatId, round: nextRound, action: finalAction },
-      });
-    }
-  }
 }
 
 /**

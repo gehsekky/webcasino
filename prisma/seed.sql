@@ -93,29 +93,6 @@ CREATE TABLE public.hand_seat (
 
 CREATE INDEX idx_hand_seat_user_id ON public.hand_seat(user_id);
 
-CREATE TABLE public.hand_seat_bet (
-  id UUID NOT NULL DEFAULT uuid_generate_v4(),
-  hand_seat_id UUID NOT NULL REFERENCES public.hand_seat(id) ON DELETE CASCADE,
-  amount integer NOT NULL,
-  type varchar(128) NOT NULL,
-  updated_at timestamp with time zone NOT NULL DEFAULT now(),
-  created_at timestamp with time zone NOT NULL DEFAULT now(),
-  PRIMARY KEY (id)
-);
-
-CREATE INDEX idx_hand_seat_bet_hand_seat_id ON public.hand_seat_bet(hand_seat_id);
-
-CREATE TABLE public.hand_seat_round (
-  hand_seat_id UUID NOT NULL REFERENCES public.hand_seat(id) ON DELETE CASCADE,
-  round integer NOT NULL,
-  action varchar(64) NOT NULL,
-  updated_at timestamp with time zone NOT NULL DEFAULT now(),
-  created_at timestamp with time zone NOT NULL DEFAULT now(),
-  PRIMARY KEY (hand_seat_id, round)
-);
-
-CREATE INDEX idx_hand_seat_round_hand_seat_id ON public.hand_seat_round(hand_seat_id);
-
 CREATE TABLE public.money_transaction (
   id UUID NOT NULL DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES public.user(id),

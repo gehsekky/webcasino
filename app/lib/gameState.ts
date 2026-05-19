@@ -90,25 +90,3 @@ export const GameStateSchema = z.discriminatedUnion('type', [
 ]);
 export type GameState = z.infer<typeof GameStateSchema>;
 
-export const GamePlayerStateSchema = z.object({
-  cards: z.array(CardSchema),
-});
-export type GamePlayerState = z.infer<typeof GamePlayerStateSchema>;
-
-/** Parse a row's JSON `data` column into a typed BlackjackState. Throws on shape mismatch. */
-export function parseBlackjackState(input: unknown): BlackjackState {
-  return BlackjackStateSchema.parse(input);
-}
-
-/** Parse a row's JSON `data` column into a typed GamePlayerState. Throws on shape mismatch. */
-export function parseGamePlayerState(input: unknown): GamePlayerState {
-  return GamePlayerStateSchema.parse(input);
-}
-
-/**
- * Legacy type aliases kept so existing call sites that import `GameData`
- * / `GamePlayerData` continue to compile. Task #6 (engine refactor) will
- * remove these in favor of the inferred names.
- */
-export type GameData = BlackjackState;
-export type GamePlayerData = GamePlayerState;

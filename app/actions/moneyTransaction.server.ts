@@ -1,4 +1,4 @@
-import { money_transaction, user } from '@prisma/client';
+import { money_transaction } from '@prisma/client';
 import { prisma, type PrismaTransactionClient } from 'db.server';
 
 export type MoneyTransactionDTO = money_transaction;
@@ -92,23 +92,3 @@ export const getBalance = async (
   return u.money;
 };
 
-/**
- * @deprecated Use `recordMoneyTransaction({ userId, ... })` directly.
- * Kept temporarily for legacy callers in actions/game.server.ts.
- */
-export const createMoneyTransaction = async (
-  u: user,
-  type: string,
-  amount: number,
-  gamePlayerId?: string | null,
-  note?: string | null,
-  tx?: PrismaTransactionClient,
-): Promise<MoneyTransactionDTO> => {
-  if (type !== 'debit' && type !== 'credit') {
-    throw new Error(`unknown money transaction type: ${type}`);
-  }
-  return recordMoneyTransaction(
-    { userId: u.id, type, amount, gamePlayerId, note },
-    tx,
-  );
-};
