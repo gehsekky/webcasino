@@ -26,6 +26,8 @@ export type AreaGame = {
   available: boolean;
   /** Engine-specific rule variants. Currently only applies to blackjack. */
   rules?: BlackjackRules;
+  /** Total seats at the table (human + AI bots). Defaults to 1. */
+  numSeats?: number;
 };
 
 export type AreaId = 'low-rollers' | 'high-rollers';
@@ -66,11 +68,12 @@ export const AREAS: CasinoArea[] = [
       {
         id: 'blackjack',
         name: 'Blackjack',
-        blurb: '6 decks · dealer hits soft 17 · 3:2 naturals',
+        blurb: '6 decks · dealer hits soft 17 · 3:2 naturals · 3 seats, AI fills the rest',
         minimumBet: 1,
         maximumBet: 100,
         available: true,
         rules: { numDecks: 6, dealerHitsSoft17: true },
+        numSeats: 3,
       },
       {
         id: 'slots',
@@ -106,11 +109,12 @@ export const AREAS: CasinoArea[] = [
       {
         id: 'blackjack',
         name: 'Blackjack',
-        blurb: '8 decks · dealer stands on 17 · 3:2 naturals',
+        blurb: '8 decks · dealer stands on 17 · 3:2 naturals · 3 seats, AI fills the rest',
         minimumBet: 100,
         maximumBet: 10000,
         available: true,
         rules: { numDecks: 8, dealerHitsSoft17: false },
+        numSeats: 3,
       },
       {
         id: 'slots',

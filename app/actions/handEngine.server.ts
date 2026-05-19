@@ -10,15 +10,23 @@ import { DEFAULT_MAXIMUM_BET, DEFAULT_MINIMUM_BET } from 'constants/index';
 import { appendHandEvent, HAND_INITIALIZED } from 'lib/handEvents';
 import { broadcastBus, type BroadcastedHandEvent } from 'lib/broadcastBus.server';
 import { isNaturalBlackjack } from 'lib/handMath';
+import { getAvailableAIUsers } from 'auth/aiUsers.server';
 
 /**
  * Engine-backed action layer. All game-state transitions flow through
  * `blackjackEngine.applyAction`. Side effects (DB writes, money movements)
  * are scheduled by this wrapper based on the engine's before/after state.
  *
- * Money model: bets are *reserved* (debited) at placement. On terminal
- * settle, the engine emits a net delta; this wrapper credits the player
- * `reserve + delta` (so win returns 2x bet, push returns 1x, lose returns 0).
+ * Multi-seat: tables can be provisioned with N seats; the human takes
+ * position 1, the rest are filled with AI users from the pool. After the
+ * human acts, the wrapper runs an AI cascade until either the hand
+ * reaches a terminal state or control returns to the human. The dealer
+ * phase is then resolved in the same transaction.
+ *
+ * Money model: bets are *reserved* (debited) at placement / cascade
+ * step. On terminal settle, the engine emits one SettlementOrder per
+ * slot with `delta = winnings - bet`; the wrapper credits the owning
+ * user `bet + delta`.
  */
 
 export type CreateHandResult = {
@@ -35,6 +43,8 @@ export async function createNewHand(params: {
   maximumBet?: number;
   numDecks?: number;
   dealerHitsSoft17?: boolean;
+  /** Total seats at the table. Empty seats are filled with AI users. */
+  numSeats?: number;
 }): Promise<CreateHandResult> {
   if (params.gameType !== 'blackjack') {
     throw new Error(`unsupported game type: ${params.gameType}`);
@@ -43,6 +53,17 @@ export async function createNewHand(params: {
   const maximumBet = params.maximumBet ?? DEFAULT_MAXIMUM_BET;
   const numDecks = params.numDecks ?? 1;
   const dealerHitsSoft17 = params.dealerHitsSoft17 ?? false;
+  const numSeats = params.numSeats ?? 1;
+  if (numSeats < 1) {
+    throw new Error('blackjack: numSeats must be ≥ 1');
+  }
+
+  // Pull `numSeats - 1` bots for the empty seats. AI users have huge
+  // balances by design so they never break a table's bet bounds.
+  const aiUsers = numSeats > 1 ? await getAvailableAIUsers(numSeats - 1) : [];
+  if (aiUsers.length < numSeats - 1) {
+    throw new Error('blackjack: not enough AI users in the pool');
+  }
 
   const pendingBroadcasts: BroadcastedHandEvent[] = [];
 
@@ -52,26 +73,39 @@ export async function createNewHand(params: {
         game_type: params.gameType,
         minimum_bet: minimumBet,
         maximum_bet: maximumBet,
-        max_seats: 1,
+        max_seats: numSeats,
         created_by: params.user.id,
       },
     });
 
-    const seat = await tx.seat.create({
+    const humanSeat = await tx.seat.create({
       data: {
         table_id: table.id,
         user_id: params.user.id,
         position: 1,
       },
     });
+    const aiSeatIds: string[] = [];
+    for (let i = 0; i < aiUsers.length; i++) {
+      const s = await tx.seat.create({
+        data: {
+          table_id: table.id,
+          user_id: aiUsers[i].id,
+          position: i + 2,
+        },
+      });
+      aiSeatIds.push(s.id);
+    }
 
     // Pre-allocate UUIDs so the engine's player id == hand_seat.id.
     const handId = randomUUID();
-    const handSeatId = randomUUID();
+    const humanHandSeatId = randomUUID();
+    const aiHandSeatIds = aiUsers.map(() => randomUUID());
+    const playerIds = [humanHandSeatId, ...aiHandSeatIds];
 
     const initialState = blackjackEngine.initialState(
       { minimumBet, maximumBet, numDecks, dealerHitsSoft17 },
-      [handSeatId],
+      playerIds,
       defaultRng,
     );
 
@@ -86,13 +120,24 @@ export async function createNewHand(params: {
 
     await tx.hand_seat.create({
       data: {
-        id: handSeatId,
+        id: humanHandSeatId,
         hand_id: handId,
-        seat_id: seat.id,
+        seat_id: humanSeat.id,
         user_id: params.user.id,
         data: { cards: [] } as unknown as Prisma.JsonObject,
       },
     });
+    for (let i = 0; i < aiUsers.length; i++) {
+      await tx.hand_seat.create({
+        data: {
+          id: aiHandSeatIds[i],
+          hand_id: handId,
+          seat_id: aiSeatIds[i],
+          user_id: aiUsers[i].id,
+          data: { cards: [] } as unknown as Prisma.JsonObject,
+        },
+      });
+    }
 
     // Bootstrap the event log with the initial state so the hand can be
     // replayed deterministically from sequence 1.
@@ -110,7 +155,12 @@ export async function createNewHand(params: {
       state_after: initialState,
     });
 
-    return { handId, handSeatId, tableId: table.id, seatId: seat.id };
+    return {
+      handId,
+      handSeatId: humanHandSeatId,
+      tableId: table.id,
+      seatId: humanSeat.id,
+    };
   });
 
   // Publish post-commit so subscribers can never see a rolled-back event.
@@ -124,8 +174,10 @@ export async function createNewHand(params: {
  * Apply one action to a hand. The wrapper:
  *  - loads the engine state from `hand.data`,
  *  - enforces turn / legality via `engine.legalActions`,
- *  - applies the action via `engine.applyAction`,
- *  - auto-advances the dealer phase if the next state is `dealer`,
+ *  - applies the human action via `engine.applyAction`,
+ *  - cascades any AI seats until control returns to the human or the hand
+ *    reaches terminal,
+ *  - auto-resolves the dealer phase if reached,
  *  - schedules money movements (reserve on bet, settle on terminal),
  *  - appends events for replay / SSE broadcast,
  *  - persists the new state snapshot.
@@ -148,6 +200,10 @@ export async function submitAction(params: {
     handIdForBroadcast = handSeat.hand_id;
 
     const prevState: BlackjackState = BlackjackStateSchema.parse(handSeat.hand.data);
+
+    // Build a slotId → user map covering every hand_seat row at the
+    // table (primary slots only — split siblings resolve via parentSlotId).
+    const userMap = await buildUserMap(tx, prevState.players.map((p) => p.id));
 
     // After a split, the viewer owns multiple slots; per-turn actions
     // (hit/stay/double/surrender/split) target whichever of the viewer's
@@ -183,19 +239,15 @@ export async function submitAction(params: {
       }
     }
 
-    // Apply the action.
-    const stateAfterPlayer = blackjackEngine.applyAction(
+    // 1. Apply the human action.
+    const stateAfterHuman = blackjackEngine.applyAction(
       prevState,
       (actionToApply as { playerId?: string }).playerId ?? params.handSeatId,
       actionToApply,
       defaultRng,
     );
-
-    // Record the player's action as an event in the same transaction.
-    // `actor_id` always references the real hand_seat row (the user's
-    // primary seat) so the FK stays valid; the payload retains the typed
-    // BlackjackAction including the (possibly retargeted) slot id.
-    const playerSeq = await appendHandEvent(
+    await applyStepDiff(prevState, stateAfterHuman, userMap, actionToApply.kind, tx);
+    const humanSeq = await appendHandEvent(
       handSeat.hand_id,
       { action: actionToApply.kind, actorId: params.handSeatId, payload: actionToApply },
       tx,
@@ -204,17 +256,42 @@ export async function submitAction(params: {
       action: actionToApply.kind,
       actor_id: params.handSeatId,
       payload: actionToApply,
-      sequence: playerSeq,
-      state_after: stateAfterPlayer,
+      sequence: humanSeq,
+      state_after: stateAfterHuman,
     });
 
-    // After a player action, if all seats are done acting the engine flips
-    // to 'dealer'. Run the dealer turn in the same transaction so settle
-    // also fires atomically with the player action.
-    let nextState = stateAfterPlayer;
-    if (nextState.phase === 'dealer') {
+    // 2. Cascade AI seats while it's a bot's turn.
+    let state = stateAfterHuman;
+    while (
+      !blackjackEngine.isTerminal(state) &&
+      state.toAct !== null &&
+      isAISlot(state.toAct, state, userMap)
+    ) {
+      const acting = state.toAct;
+      const before = state;
+      const aiAction = blackjackEngine.aiAction!(state, acting, defaultRng);
+      state = blackjackEngine.applyAction(state, acting, aiAction, defaultRng);
+      await applyStepDiff(before, state, userMap, aiAction.kind, tx);
+      const seq = await appendHandEvent(
+        handSeat.hand_id,
+        { action: aiAction.kind, actorId: acting, payload: aiAction },
+        tx,
+      );
+      pendingBroadcasts.push({
+        action: aiAction.kind,
+        actor_id: acting,
+        payload: aiAction,
+        sequence: seq,
+        state_after: state,
+      });
+    }
+
+    // 3. Dealer turn. The engine flips to `dealer` once every seat has
+    //    finished acting; we play it through atomically so settle fires
+    //    in the same transaction.
+    if (state.phase === 'dealer') {
       const dealerAction: BlackjackAction = { kind: 'dealer_play' };
-      nextState = blackjackEngine.applyAction(nextState, 'dealer', dealerAction, defaultRng);
+      state = blackjackEngine.applyAction(state, 'dealer', dealerAction, defaultRng);
       const dealerSeq = await appendHandEvent(
         handSeat.hand_id,
         { action: dealerAction.kind, actorId: null, payload: dealerAction },
@@ -225,17 +302,19 @@ export async function submitAction(params: {
         actor_id: null,
         payload: dealerAction,
         sequence: dealerSeq,
-        state_after: nextState,
+        state_after: state,
       });
     }
 
-    // Money: reserve increases + terminal settlement.
-    await applyMoneyMoves(prevState, nextState, params.handSeatId, handSeat.user_id, actionToApply, tx);
+    // 4. Terminal settlement: credit each slot's owning user.
+    if (blackjackEngine.isTerminal(state)) {
+      await applySettlement(state, userMap, tx);
+    }
 
-    // Persist new engine state.
+    // 5. Persist new engine state.
     await tx.hand.update({
       where: { id: handSeat.hand_id },
-      data: { data: nextState as unknown as Prisma.JsonObject, updated_at: new Date() },
+      data: { data: state as unknown as Prisma.JsonObject, updated_at: new Date() },
     });
   });
 
@@ -245,11 +324,36 @@ export async function submitAction(params: {
   }
 }
 
-/** Sum the bets across all slots that belong to a single user (including splits). */
-function sumReservedFor(state: BlackjackState, handSeatId: string): number {
-  return state.players
-    .filter((p) => p.id === handSeatId || p.parentSlotId === handSeatId)
-    .reduce((s, p) => s + p.bet, 0);
+type SlotOwner = { id: string; is_ai: boolean };
+
+async function buildUserMap(
+  tx: PrismaTransactionClient,
+  slotIds: string[],
+): Promise<Map<string, SlotOwner>> {
+  const handSeats = await tx.hand_seat.findMany({
+    where: { id: { in: slotIds } },
+    include: { user: { select: { id: true, is_ai: true } } },
+  });
+  return new Map(handSeats.map((hs) => [hs.id, hs.user]));
+}
+
+/**
+ * Resolve a slot's owning user, falling back to the parent slot for
+ * split siblings (which exist in engine state but have no hand_seat row).
+ */
+function ownerOf(
+  slotId: string,
+  state: BlackjackState,
+  userMap: Map<string, SlotOwner>,
+): SlotOwner {
+  const direct = userMap.get(slotId);
+  if (direct) return direct;
+  const slot = state.players.find((p) => p.id === slotId);
+  if (slot?.parentSlotId) {
+    const parent = userMap.get(slot.parentSlotId);
+    if (parent) return parent;
+  }
+  throw new Error(`blackjack: unknown owner for slot ${slotId}`);
 }
 
 /** Slot id → hand_seat id (the parent hand_seat for splits, self otherwise). */
@@ -258,123 +362,121 @@ function ownerHandSeatId(state: BlackjackState, slotId: string): string {
   return slot?.parentSlotId ?? slotId;
 }
 
-async function applyMoneyMoves(
+function isAISlot(
+  slotId: string,
+  state: BlackjackState,
+  userMap: Map<string, SlotOwner>,
+): boolean {
+  return ownerOf(slotId, state, userMap).is_ai;
+}
+
+/**
+ * For each slot whose `bet` or `insuranceBet` increased between prev and
+ * next, debit the diff from the owning user. The atomic conditional
+ * UPDATE in `recordMoneyTransaction` rejects insufficient funds at the
+ * ledger level.
+ */
+async function applyStepDiff(
   prev: BlackjackState,
   next: BlackjackState,
-  actingHandSeatId: string,
-  actingUserId: string,
-  action: BlackjackAction,
+  userMap: Map<string, SlotOwner>,
+  actionKind: string,
   tx: PrismaTransactionClient,
 ): Promise<void> {
-  // 1. Reserve any *increase* in total chips committed by the acting user.
-  //    Place_bet bumps a single slot's bet from 0; double_down doubles a
-  //    slot's bet; split adds a new sibling slot with an equal bet. Summing
-  //    bets across all of the user's slots (`id === handSeatId` plus any
-  //    `parentSlotId === handSeatId`) lets one diff handle all three.
-  const prevReserved = sumReservedFor(prev, actingHandSeatId);
-  const nextReserved = sumReservedFor(next, actingHandSeatId);
-  if (nextReserved > prevReserved) {
-    const noteByAction: Record<string, string> = {
-      place_bet: 'reserve:place_bet',
-      double_down: 'reserve:double_down',
-      split: 'reserve:split',
-    };
-    await recordMoneyTransaction(
-      {
-        userId: actingUserId,
-        type: 'debit',
-        amount: nextReserved - prevReserved,
-        gamePlayerId: actingHandSeatId,
-        note: noteByAction[action.kind] ?? `reserve:${action.kind}`,
-      },
-      tx,
-    );
-  }
+  for (const nextSlot of next.players) {
+    const prevSlot = prev.players.find((p) => p.id === nextSlot.id);
+    const prevBet = prevSlot?.bet ?? 0;
+    const prevIns = prevSlot?.insuranceBet ?? null;
 
-  // 2. Reserve insurance the moment the acting player takes it.
-  const prevPlayer = prev.players.find((p) => p.id === actingHandSeatId);
-  const nextPlayer = next.players.find((p) => p.id === actingHandSeatId);
-  if (
-    nextPlayer?.insuranceBet &&
-    nextPlayer.insuranceBet > 0 &&
-    (prevPlayer?.insuranceBet ?? null) === null
-  ) {
-    await recordMoneyTransaction(
-      {
-        userId: actingUserId,
-        type: 'debit',
-        amount: nextPlayer.insuranceBet,
-        gamePlayerId: actingHandSeatId,
-        note: 'reserve:insurance',
-      },
-      tx,
-    );
-  }
-
-  // 3. On terminal transition, credit each slot `reserve + delta`. Split
-  //    siblings settle independently but route their credit through the
-  //    parent hand_seat (the only one that exists in the DB).
-  if (!blackjackEngine.isTerminal(prev) && blackjackEngine.isTerminal(next)) {
-    for (const order of blackjackEngine.settle(next)) {
-      const player = next.players.find((p) => p.id === order.playerId);
-      if (!player) continue;
-      const credit = player.bet + order.delta;
-      if (credit < 0) {
-        throw new Error(`unexpected negative settlement credit ${credit} for ${order.playerId}`);
-      }
-      if (credit === 0) continue;
-
-      const ledgerHandSeatId = ownerHandSeatId(next, order.playerId);
-      const userId = await resolveUserId(ledgerHandSeatId, actingHandSeatId, actingUserId, tx);
+    // Bet increase (place_bet, double_down, or a freshly-spawned split sibling).
+    if (nextSlot.bet > prevBet) {
+      const owner = ownerOf(nextSlot.id, next, userMap);
       await recordMoneyTransaction(
         {
-          userId,
-          type: 'credit',
-          amount: credit,
-          gamePlayerId: ledgerHandSeatId,
-          note: `settle:${order.reason}`,
+          userId: owner.id,
+          type: 'debit',
+          amount: nextSlot.bet - prevBet,
+          gamePlayerId: ownerHandSeatId(next, nextSlot.id),
+          note: `reserve:${actionKind}`,
         },
         tx,
       );
     }
 
-    // Insurance settlement. Dealer had natural BJ iff the hand ended with
-    // exactly 2 dealer cards totalling 21 (dealer never draws on natural).
-    const dealerNaturalBJ = isNaturalBlackjack(next.dealerHand);
-    if (dealerNaturalBJ) {
-      for (const player of next.players) {
-        if (player.insuranceBet && player.insuranceBet > 0) {
-          const ledgerHandSeatId = ownerHandSeatId(next, player.id);
-          const userId = await resolveUserId(ledgerHandSeatId, actingHandSeatId, actingUserId, tx);
-          await recordMoneyTransaction(
-            {
-              userId,
-              type: 'credit',
-              amount: 3 * player.insuranceBet,
-              gamePlayerId: ledgerHandSeatId,
-              note: 'settle:insurance_win',
-            },
-            tx,
-          );
-        }
-      }
+    // Insurance taken for the first time.
+    if (
+      nextSlot.insuranceBet !== null &&
+      nextSlot.insuranceBet > 0 &&
+      prevIns === null
+    ) {
+      const owner = ownerOf(nextSlot.id, next, userMap);
+      await recordMoneyTransaction(
+        {
+          userId: owner.id,
+          type: 'debit',
+          amount: nextSlot.insuranceBet,
+          gamePlayerId: ownerHandSeatId(next, nextSlot.id),
+          note: 'reserve:insurance',
+        },
+        tx,
+      );
     }
   }
 }
 
-async function resolveUserId(
-  handSeatId: string,
-  actingHandSeatId: string,
-  actingUserId: string,
+/**
+ * On terminal transition, credit each slot's owning user `bet + delta`
+ * per the engine's settle output. Insurance wins (dealer natural BJ)
+ * pay 3x the insurance reserve (2:1 winnings + original returned).
+ */
+async function applySettlement(
+  state: BlackjackState,
+  userMap: Map<string, SlotOwner>,
   tx: PrismaTransactionClient,
-): Promise<string> {
-  if (handSeatId === actingHandSeatId) return actingUserId;
-  const seat = await tx.hand_seat.findUnique({
-    where: { id: handSeatId },
-    select: { user_id: true },
-  });
-  if (!seat) throw new Error(`could not resolve user for hand_seat ${handSeatId}`);
-  return seat.user_id;
+): Promise<void> {
+  for (const order of blackjackEngine.settle(state)) {
+    const player = state.players.find((p) => p.id === order.playerId);
+    if (!player) continue;
+    const credit = player.bet + order.delta;
+    if (credit < 0) {
+      throw new Error(
+        `blackjack: unexpected negative settlement credit ${credit} for ${order.playerId}`,
+      );
+    }
+    if (credit === 0) continue;
+
+    const owner = ownerOf(order.playerId, state, userMap);
+    await recordMoneyTransaction(
+      {
+        userId: owner.id,
+        type: 'credit',
+        amount: credit,
+        gamePlayerId: ownerHandSeatId(state, order.playerId),
+        note: `settle:${order.reason}`,
+      },
+      tx,
+    );
+  }
+
+  // Insurance settlement: dealer had natural BJ iff the hand ended with
+  // exactly 2 dealer cards totalling 21 (dealer never draws on natural).
+  if (isNaturalBlackjack(state.dealerHand)) {
+    for (const player of state.players) {
+      if (player.insuranceBet && player.insuranceBet > 0) {
+        const owner = ownerOf(player.id, state, userMap);
+        await recordMoneyTransaction(
+          {
+            userId: owner.id,
+            type: 'credit',
+            amount: 3 * player.insuranceBet,
+            gamePlayerId: ownerHandSeatId(state, player.id),
+            note: 'settle:insurance_win',
+          },
+          tx,
+        );
+      }
+    }
+  }
 }
 
 /**
