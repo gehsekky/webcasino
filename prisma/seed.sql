@@ -12,6 +12,7 @@ CREATE TABLE public.user (
   salt varchar(32),
   password_hash varchar(512),
   money integer NOT NULL DEFAULT 0,
+  is_ai boolean NOT NULL DEFAULT false,
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   PRIMARY KEY (id)

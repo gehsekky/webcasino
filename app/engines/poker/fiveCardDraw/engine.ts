@@ -2,7 +2,7 @@ import type { GameEngine, RNG, SettlementOrder } from '../../types';
 import type { CardData, Suit, Rank } from 'lib/gameState';
 import { evaluateHand } from '../shared/handEval';
 import { buildPots, distributePots } from '../shared/pot';
-import { compareHandRanks } from '../shared/types';
+import { CATEGORY_VALUE, cardValue, compareHandRanks } from '../shared/types';
 import type {
   FiveCardDrawAction,
   FiveCardDrawConfig,
@@ -488,6 +488,10 @@ export const fiveCardDrawEngine: GameEngine<
     };
   },
 
+  aiAction(state, slotId) {
+    return fiveCardDrawAiAction(state, slotId);
+  },
+
   isTerminal(state) {
     return state.phase === 'settled';
   },
@@ -509,6 +513,69 @@ export const fiveCardDrawEngine: GameEngine<
     return orders;
   },
 };
+
+/**
+ * Simple passive AI for 5-card draw.
+ *
+ *   draw phase    → keep any paired cards; if no pair, keep the two
+ *                   highest and discard the bottom three.
+ *   betting phases:
+ *     pair-or-better → check (free) or call (facing a bet)
+ *     high card only → check if free, fold if facing a bet
+ *
+ * Never raises (passive) and never bluffs. Easy to extend later with
+ * pot-odds, hand-strength tiers, occasional aggression, etc.
+ */
+function fiveCardDrawAiAction(
+  state: FiveCardDrawState,
+  slotId: string,
+): FiveCardDrawAction {
+  const slot = state.players.find((p) => p.id === slotId);
+  if (!slot) throw new Error(`5cd AI: unknown slot ${slotId}`);
+
+  if (state.phase === 'draw') {
+    return { kind: 'discard', playerId: slotId, indices: pickDiscards(slot.cards) };
+  }
+
+  if (state.phase === 'betting_1' || state.phase === 'betting_2') {
+    const owed = state.currentBet - slot.currentBet;
+    const handRank = evaluateHand(slot.cards);
+    const hasPairOrBetter = CATEGORY_VALUE[handRank.category] >= CATEGORY_VALUE.one_pair;
+
+    if (owed === 0) {
+      return { kind: 'check', playerId: slotId };
+    }
+    return hasPairOrBetter
+      ? { kind: 'call', playerId: slotId }
+      : { kind: 'fold', playerId: slotId };
+  }
+
+  throw new Error(`5cd AI: cannot act in phase ${state.phase}`);
+}
+
+/** Indices of the cards to discard given a 5-card hand. */
+function pickDiscards(cards: CardData[]): number[] {
+  if (cards.length !== 5) return [];
+  const values = cards.map((c) => cardValue(c));
+  const counts = new Map<number, number>();
+  for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
+
+  // Keep cards that are part of any pair/trips/quads.
+  const pairedIndices = new Set(
+    values.flatMap((v, i) => ((counts.get(v) ?? 0) >= 2 ? [i] : [])),
+  );
+
+  if (pairedIndices.size > 0) {
+    return [0, 1, 2, 3, 4].filter((i) => !pairedIndices.has(i));
+  }
+
+  // No paired cards — keep the top two by rank, discard the bottom three.
+  const sorted = values
+    .map((v, i) => ({ v, i }))
+    .sort((a, b) => b.v - a.v);
+  const keep = new Set(sorted.slice(0, 2).map((x) => x.i));
+  return [0, 1, 2, 3, 4].filter((i) => !keep.has(i));
+}
 
 /** Re-export of `compareHandRanks` for engines downstream that want it. */
 export { compareHandRanks };

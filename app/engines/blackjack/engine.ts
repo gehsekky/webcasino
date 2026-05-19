@@ -97,6 +97,20 @@ function nextActive(state: BlackjackState): string | null {
   return null;
 }
 
+function firstPendingInsurance(state: BlackjackState): string | null {
+  for (const p of state.players) {
+    if (p.insuranceBet === null) return p.id;
+  }
+  return null;
+}
+
+function firstPendingBet(state: BlackjackState): string | null {
+  for (const p of state.players) {
+    if (p.status === 'awaiting_bet') return p.id;
+  }
+  return null;
+}
+
 function deepClone(state: BlackjackState): BlackjackState {
   return {
     ...state,
@@ -123,7 +137,7 @@ export const blackjackEngine: GameEngine<BlackjackState, BlackjackAction, Blackj
       insuranceBet: null,
       parentSlotId: null,
     }));
-    return {
+    const initial: BlackjackState = {
       type: 'blackjack',
       config: {
         minimumBet: config.minimumBet,
@@ -138,6 +152,8 @@ export const blackjackEngine: GameEngine<BlackjackState, BlackjackAction, Blackj
       phase: 'awaiting_bets',
       toAct: null,
     };
+    initial.toAct = firstPendingBet(initial);
+    return initial;
   },
 
   legalActions(state, who) {
@@ -209,10 +225,12 @@ export const blackjackEngine: GameEngine<BlackjackState, BlackjackAction, Blackj
         }
         p.bet = action.amount;
         p.status = 'in_hand';
-        // If every player has bet, advance to deal.
+        // If every player has bet, advance to deal. Otherwise hand off
+        // to the next pending bettor (multi-seat tables).
         if (next.players.every((pl) => pl.status === 'in_hand')) {
           return dealInitial(next);
         }
+        next.toAct = firstPendingBet(next);
         return next;
       }
 
@@ -243,10 +261,12 @@ export const blackjackEngine: GameEngine<BlackjackState, BlackjackAction, Blackj
         } else {
           p.insuranceBet = 0;
         }
-        // If everyone has decided, resolve.
+        // If everyone has decided, resolve. Otherwise advance to the
+        // next player still pending an insurance decision.
         if (next.players.every((pl) => pl.insuranceBet !== null)) {
           return resolveInsurance(next);
         }
+        next.toAct = firstPendingInsurance(next);
         return next;
       }
 
@@ -407,6 +427,10 @@ export const blackjackEngine: GameEngine<BlackjackState, BlackjackAction, Blackj
     return state.phase === 'settled';
   },
 
+  aiAction(state, slotId): BlackjackAction {
+    return blackjackAiAction(state, slotId);
+  },
+
   settle(state) {
     const orders: SettlementOrder[] = [];
     for (const p of state.players) {
@@ -451,6 +475,7 @@ function dealInitial(state: BlackjackState): BlackjackState {
   const upCard = state.dealerHand[1];
   if (upCard.rank === 'Ace') {
     state.phase = 'insurance_offered';
+    state.toAct = firstPendingInsurance(state);
     return state;
   }
 
@@ -502,6 +527,49 @@ function startDealerPhase(state: BlackjackState): BlackjackState {
   state.phase = 'dealer';
   state.toAct = null;
   return state;
+}
+
+/**
+ * Simple "basic-strategy-lite" AI for blackjack.
+ *
+ *   awaiting_bets       → place_bet at table minimum
+ *   insurance_offered   → decline (insurance has a negative house edge)
+ *   playing:
+ *     hand <= 11        → hit
+ *     hand 12-16        → stand vs dealer 2-6, hit vs 7-A (strong)
+ *     hand 17+          → stand
+ *
+ * Doesn't double down, split, or surrender — those add asymmetric EV
+ * decisions that we'll layer in once tuning matters. Soft totals share
+ * the same threshold as hard for now (good enough; basic strategy
+ * variants can land later behind a config flag).
+ */
+function blackjackAiAction(state: BlackjackState, slotId: string): BlackjackAction {
+  if (state.phase === 'awaiting_bets') {
+    return { kind: 'place_bet', playerId: slotId, amount: state.config.minimumBet };
+  }
+  if (state.phase === 'insurance_offered') {
+    return { kind: 'decline_insurance', playerId: slotId };
+  }
+  if (state.phase === 'playing') {
+    const slot = state.players.find((p) => p.id === slotId);
+    if (!slot) throw new Error(`blackjack AI: unknown slot ${slotId}`);
+
+    const total = handTotal(slot.cards);
+    if (total >= 17) return { kind: 'stay', playerId: slotId };
+    if (total <= 11) return { kind: 'hit', playerId: slotId };
+
+    // 12-16: depend on dealer up-card. dealerHand[0] is the hole card
+    // (masked from the AI just like it's masked from humans during play);
+    // dealerHand[1] is the face-up card.
+    const upCard = state.dealerHand[1];
+    const dealerValue = upCard ? handTotal([upCard]) : 0;
+    const dealerWeak = dealerValue >= 2 && dealerValue <= 6;
+    return dealerWeak
+      ? { kind: 'stay', playerId: slotId }
+      : { kind: 'hit', playerId: slotId };
+  }
+  throw new Error(`blackjack AI: cannot act in phase ${state.phase}`);
 }
 
 function playDealer(state: BlackjackState): BlackjackState {

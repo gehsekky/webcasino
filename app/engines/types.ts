@@ -47,4 +47,16 @@ export interface GameEngine<State, Action, View, Config = unknown> {
 
   /** Chip movements once the hand ends. Caller applies these via the ledger. */
   settle(state: State): SettlementOrder[];
+
+  /**
+   * Pick a legal action on behalf of an AI-controlled seat. The wrapper
+   * calls this whenever `state.toAct` resolves to a `user.is_ai = true`
+   * account. Should be deterministic given (state, slotId); any
+   * randomness (bluffing, variance) flows through `rng`.
+   *
+   * Optional — engines that don't implement it can only support
+   * human-only seats (and the wrapper will surface a clear error if an
+   * AI gets seated at such a game).
+   */
+  aiAction?(state: State, slotId: string, rng: RNG): Action;
 }
