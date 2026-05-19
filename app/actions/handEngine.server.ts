@@ -314,7 +314,7 @@ export async function submitAction(params: {
     // 5. Persist new engine state.
     await tx.hand.update({
       where: { id: handSeat.hand_id },
-      data: { data: state as unknown as Prisma.JsonObject, updated_at: new Date() },
+      data: { data: state as unknown as Prisma.JsonObject },
     });
   });
 
