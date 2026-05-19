@@ -1,4 +1,4 @@
-FROM node:22.1-alpine
+FROM node:22.12-alpine
 WORKDIR /app
 
 # Copy manifests + Prisma schema before `npm ci` so the postinstall
