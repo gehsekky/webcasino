@@ -14,6 +14,7 @@ import {
 import { BlackjackStateSchema } from 'lib/gameState';
 import { blackjackEngine } from 'engines/blackjack/engine';
 import type { BlackjackView } from 'engines/blackjack/types';
+import { findAreaForTable } from 'lib/casinoAreas';
 import SiteHeader from 'components/SiteHeader';
 import HandView from 'components/HandView';
 
@@ -27,7 +28,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
   const handSeat = await prisma.hand_seat.findUnique({
     where: { id: handSeatId },
-    include: { hand: true, user: { select: { name: true, money: true } } },
+    include: {
+      hand: { include: { casino_table: true } },
+      user: { select: { name: true, money: true } },
+    },
   });
   if (!handSeat) {
     throw new Response('seat not found', { status: 404 });
@@ -36,11 +40,20 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const state = BlackjackStateSchema.parse(handSeat.hand.data);
   const view: BlackjackView = blackjackEngine.viewFor(state, handSeatId);
 
+  const table = handSeat.hand.casino_table;
+  const areaMatch = findAreaForTable({
+    gameType: table.game_type,
+    minimumBet: table.minimum_bet,
+    maximumBet: table.maximum_bet,
+  });
+
   return json({
     handId: handSeat.hand_id,
     handSeatId: handSeat.id,
     view,
     viewer: { id: user.id, name: handSeat.user.name, balance: handSeat.user.money },
+    area: areaMatch ? { id: areaMatch.area.id, name: areaMatch.area.name } : null,
+    gameType: table.game_type,
   });
 }
 
@@ -77,6 +90,8 @@ export default function GameRoute() {
         initialView={initialView}
         viewerName={data.viewer.name}
         viewerBalance={data.viewer.balance}
+        area={data.area}
+        gameType={data.gameType}
       />
     </div>
   );

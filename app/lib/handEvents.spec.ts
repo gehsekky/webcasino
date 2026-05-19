@@ -17,7 +17,11 @@ function bootstrap(initialState: BlackjackState): StoredHandEvent {
  */
 function makeInitialState(): BlackjackState {
   const seed = Array.from({ length: 51 }, () => 0);
-  return blackjackEngine.initialState({ minimumBet: 5, maximumBet: 100 }, [playerId], seededRng(seed));
+  return blackjackEngine.initialState(
+    { minimumBet: 5, maximumBet: 100, numDecks: 1, dealerHitsSoft17: false },
+    [playerId],
+    seededRng(seed),
+  );
 }
 
 describe('foldHandEvents', () => {

@@ -24,6 +24,14 @@ function freshDeck(): CardData[] {
   return cards;
 }
 
+function freshShoe(numDecks: number): CardData[] {
+  const cards: CardData[] = [];
+  for (let i = 0; i < numDecks; i++) {
+    cards.push(...freshDeck());
+  }
+  return cards;
+}
+
 function shuffle(deck: CardData[], rng: RNG): void {
   for (let i = deck.length - 1; i > 0; i--) {
     const j = rng.randInt(i + 1);
@@ -33,6 +41,29 @@ function shuffle(deck: CardData[], rng: RNG): void {
 
 function handTotal(cards: CardData[]): number {
   return Card.getTotal(cards as unknown as Card[]);
+}
+
+function handTotalDetail(cards: CardData[]): { total: number; isSoft: boolean } {
+  let sum = 0;
+  let aceCount = 0;
+  for (const card of cards) {
+    if (card.rank === 'Ace') {
+      sum += 1;
+      aceCount += 1;
+    } else if (card.rank === 'Jack' || card.rank === 'Queen' || card.rank === 'King') {
+      sum += 10;
+    } else if (card.rank === 'hidden') {
+      // contributes 0
+    } else {
+      sum += parseInt(card.rank, 10);
+    }
+  }
+  let isSoft = false;
+  if (aceCount > 0 && sum + 10 <= 21) {
+    sum += 10;
+    isSoft = true;
+  }
+  return { total: sum, isSoft };
 }
 
 function isBust(cards: CardData[]): boolean {
@@ -80,7 +111,8 @@ export const blackjackEngine: GameEngine<BlackjackState, BlackjackAction, Blackj
   id: 'blackjack',
 
   initialState(config, playerIds, rng) {
-    const deck = freshDeck();
+    const numDecks = config.numDecks ?? 1;
+    const deck = freshShoe(numDecks);
     shuffle(deck, rng);
     const players: PlayerSlot[] = playerIds.map((id) => ({
       id,
@@ -88,10 +120,16 @@ export const blackjackEngine: GameEngine<BlackjackState, BlackjackAction, Blackj
       bet: 0,
       doubled: false,
       status: 'awaiting_bet',
+      insuranceBet: null,
     }));
     return {
       type: 'blackjack',
-      config: { minimumBet: config.minimumBet, maximumBet: config.maximumBet },
+      config: {
+        minimumBet: config.minimumBet,
+        maximumBet: config.maximumBet,
+        numDecks,
+        dealerHitsSoft17: config.dealerHitsSoft17 ?? false,
+      },
       deck,
       dealerHand: [],
       dealerCardsRevealed: false,
@@ -108,6 +146,15 @@ export const blackjackEngine: GameEngine<BlackjackState, BlackjackAction, Blackj
       if (!p || p.status !== 'awaiting_bet') return [];
       // Caller picks an amount; engine validates inside applyAction.
       return [{ kind: 'place_bet', playerId: who, amount: state.config.minimumBet }];
+    }
+    if (state.phase === 'insurance_offered') {
+      const p = state.players.find((pl) => pl.id === who);
+      if (!p || p.insuranceBet !== null) return [];
+      // The amount is variable (1..floor(bet/2)); caller picks.
+      return [
+        { kind: 'take_insurance', playerId: who, amount: Math.max(1, Math.floor(p.bet / 2)) },
+        { kind: 'decline_insurance', playerId: who },
+      ];
     }
     if (state.phase === 'playing' && state.toAct === who) {
       const p = findPlayer(state, who);
@@ -156,6 +203,36 @@ export const blackjackEngine: GameEngine<BlackjackState, BlackjackAction, Blackj
 
       case 'deal_initial': {
         return dealInitial(next);
+      }
+
+      case 'take_insurance':
+      case 'decline_insurance': {
+        if (next.phase !== 'insurance_offered') {
+          throw new Error('blackjack: insurance not currently offered');
+        }
+        const p = findPlayer(next, action.playerId);
+        if (p.insuranceBet !== null) {
+          throw new Error(`blackjack: player ${action.playerId} already responded to insurance`);
+        }
+        if (action.kind === 'take_insurance') {
+          const maxInsurance = Math.floor(p.bet / 2);
+          if (!Number.isInteger(action.amount) || action.amount <= 0) {
+            throw new Error('blackjack: insurance amount must be a positive integer');
+          }
+          if (action.amount > maxInsurance) {
+            throw new Error(
+              `blackjack: insurance ${action.amount} exceeds the cap (${maxInsurance})`,
+            );
+          }
+          p.insuranceBet = action.amount;
+        } else {
+          p.insuranceBet = 0;
+        }
+        // If everyone has decided, resolve.
+        if (next.players.every((pl) => pl.insuranceBet !== null)) {
+          return resolveInsurance(next);
+        }
+        return next;
       }
 
       case 'hit': {
@@ -287,7 +364,30 @@ function dealInitial(state: BlackjackState): BlackjackState {
   state.dealerHand.push(draw(state.deck));
   state.dealerHand.push(draw(state.deck));
 
-  // Check dealer natural
+  // If dealer up-card is Ace, offer insurance before resolving naturals.
+  // (dealerHand[0] is the hole card; dealerHand[1] is the face-up card.)
+  const upCard = state.dealerHand[1];
+  if (upCard.rank === 'Ace') {
+    state.phase = 'insurance_offered';
+    return state;
+  }
+
+  return resolveDealerPeekAndContinue(state);
+}
+
+function resolveInsurance(state: BlackjackState): BlackjackState {
+  return resolveDealerPeekAndContinue(state);
+}
+
+/**
+ * Peek at the dealer's hole card. If dealer has a natural blackjack, settle
+ * immediately. Otherwise mark any player naturals and advance to the
+ * playing phase (or skip straight to dealer if every player got a natural).
+ *
+ * Called from `dealInitial` when the up-card isn't an Ace, and from
+ * `resolveInsurance` after all players have responded to insurance.
+ */
+function resolveDealerPeekAndContinue(state: BlackjackState): BlackjackState {
   if (isNatural(state.dealerHand)) {
     state.dealerCardsRevealed = true;
     for (const p of state.players) {
@@ -301,7 +401,6 @@ function dealInitial(state: BlackjackState): BlackjackState {
     return state;
   }
 
-  // Check player naturals
   for (const p of state.players) {
     if (isNatural(p.cards)) {
       p.status = 'blackjack';
@@ -311,7 +410,7 @@ function dealInitial(state: BlackjackState): BlackjackState {
   state.phase = 'playing';
   state.toAct = nextActive(state);
   if (!state.toAct) {
-    // Every player got a natural; go straight to dealer reveal + settle.
+    // Every player got a natural; skip to dealer reveal + settle.
     return startDealerPhase(state);
   }
   return state;
@@ -325,8 +424,13 @@ function startDealerPhase(state: BlackjackState): BlackjackState {
 
 function playDealer(state: BlackjackState): BlackjackState {
   state.dealerCardsRevealed = true;
-  // Dealer hits soft 17 (or stands; here we stand on 17+ to match existing behavior).
-  while (handTotal(state.dealerHand) < 17) {
+  // S17: dealer stands on all 17. H17: dealer hits *soft* 17.
+  for (;;) {
+    const detail = handTotalDetail(state.dealerHand);
+    const shouldHit =
+      detail.total < 17 ||
+      (detail.total === 17 && detail.isSoft && state.config.dealerHitsSoft17);
+    if (!shouldHit) break;
     state.dealerHand.push(draw(state.deck));
   }
   const dealerTotal = handTotal(state.dealerHand);

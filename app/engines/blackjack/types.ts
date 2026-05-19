@@ -5,6 +5,8 @@ export type { BlackjackState, PlayerSlot, Phase, PlayerStatus };
 export type BlackjackAction =
   | { kind: 'place_bet'; playerId: string; amount: number }
   | { kind: 'deal_initial' }
+  | { kind: 'take_insurance'; playerId: string; amount: number }
+  | { kind: 'decline_insurance'; playerId: string }
   | { kind: 'hit'; playerId: string }
   | { kind: 'stay'; playerId: string }
   | { kind: 'double_down'; playerId: string }
@@ -14,6 +16,10 @@ export type BlackjackAction =
 export type BlackjackConfig = {
   minimumBet: number;
   maximumBet: number;
+  /** Decks shuffled into the shoe. 1 by default; casinos typically use 4-8. */
+  numDecks: number;
+  /** Hit-soft-17 (H17) vs stand-on-all-17 (S17) house rule. */
+  dealerHitsSoft17: boolean;
 };
 
 /**

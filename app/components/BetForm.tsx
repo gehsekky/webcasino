@@ -1,6 +1,8 @@
 import { useFetcher } from '@remix-run/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { buttonClass } from 'lib/buttonStyle';
+
+const LAST_BET_STORAGE_KEY = 'webcasino:lastBet';
 
 type BetFormProps = {
   minimumBet: number;
@@ -16,12 +18,35 @@ export default function BetForm({ minimumBet, maximumBet, balance, defaultAmount
   const start = Math.min(Math.max(defaultAmount ?? minimumBet, minimumBet), cap);
   const [amount, setAmount] = useState<number>(start);
 
+  // After hydration, prefer the last-bet value from localStorage if it fits
+  // within this table's bounds. SSR-safe: localStorage read happens in effect.
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(LAST_BET_STORAGE_KEY);
+      if (saved === null) return;
+      const parsed = parseInt(saved, 10);
+      if (!Number.isFinite(parsed)) return;
+      const clamped = Math.min(Math.max(parsed, minimumBet), cap);
+      setAmount(clamped);
+    } catch {
+      // localStorage unavailable (e.g. private mode) — fall back to defaults.
+    }
+  }, [minimumBet, cap]);
+
   const submitting = fetcher.state !== 'idle';
   const cannotAfford = balance < minimumBet;
   const invalid = amount < minimumBet || amount > maximumBet || amount > balance;
 
+  const handleSubmit = () => {
+    try {
+      window.localStorage.setItem(LAST_BET_STORAGE_KEY, String(amount));
+    } catch {
+      // ignore quota/permission errors
+    }
+  };
+
   return (
-    <fetcher.Form method="post" className="space-y-2">
+    <fetcher.Form method="post" className="space-y-2" onSubmit={handleSubmit}>
       <input type="hidden" name="submit" value="place initial bet" />
       <label
         htmlFor="bet-amount"

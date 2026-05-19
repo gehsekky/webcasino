@@ -10,6 +10,13 @@
 
 export type GameId = 'blackjack' | 'poker' | 'slots';
 
+export type BlackjackRules = {
+  /** Decks in the shoe. Higher counts marginally reduce card-counting edges. */
+  numDecks: number;
+  /** True = dealer hits soft 17 (H17), false = dealer stands on all 17 (S17). */
+  dealerHitsSoft17: boolean;
+};
+
 export type AreaGame = {
   id: GameId;
   name: string;
@@ -17,6 +24,8 @@ export type AreaGame = {
   minimumBet: number;
   maximumBet: number;
   available: boolean;
+  /** Engine-specific rule variants. Currently only applies to blackjack. */
+  rules?: BlackjackRules;
 };
 
 export type AreaId = 'low-rollers' | 'high-rollers';
@@ -57,10 +66,11 @@ export const AREAS: CasinoArea[] = [
       {
         id: 'blackjack',
         name: 'Blackjack',
-        blurb: 'Standard rules. 3:2 naturals, dealer stands on 17.',
+        blurb: '6 decks · dealer hits soft 17 · 3:2 naturals',
         minimumBet: 1,
         maximumBet: 100,
         available: true,
+        rules: { numDecks: 6, dealerHitsSoft17: true },
       },
       {
         id: 'slots',
@@ -96,10 +106,11 @@ export const AREAS: CasinoArea[] = [
       {
         id: 'blackjack',
         name: 'Blackjack',
-        blurb: 'Same rules, bigger stakes.',
+        blurb: '8 decks · dealer stands on 17 · 3:2 naturals',
         minimumBet: 100,
         maximumBet: 10000,
         available: true,
+        rules: { numDecks: 8, dealerHitsSoft17: false },
       },
       {
         id: 'slots',
@@ -127,4 +138,27 @@ export function getAreaById(id: string | undefined): CasinoArea | undefined {
 
 export function findGameInArea(area: CasinoArea, gameId: string): AreaGame | undefined {
   return area.games.find((g) => g.id === gameId);
+}
+
+/**
+ * Reverse lookup: which area does a `casino_table` belong to, based on its
+ * game type and bet limits? Used by the game route to render a "back to
+ * area" breadcrumb and a same-area "New Hand" CTA without storing area_id
+ * in the DB.
+ */
+export function findAreaForTable(params: {
+  gameType: string;
+  minimumBet: number;
+  maximumBet: number;
+}): { area: CasinoArea; game: AreaGame } | undefined {
+  for (const area of AREAS) {
+    const game = area.games.find(
+      (g) =>
+        g.id === params.gameType &&
+        g.minimumBet === params.minimumBet &&
+        g.maximumBet === params.maximumBet,
+    );
+    if (game) return { area, game };
+  }
+  return undefined;
 }

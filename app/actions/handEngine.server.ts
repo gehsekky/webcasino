@@ -9,6 +9,7 @@ import type { BlackjackAction } from 'engines/blackjack/types';
 import { DEFAULT_MAXIMUM_BET, DEFAULT_MINIMUM_BET } from 'constants/index';
 import { appendHandEvent, HAND_INITIALIZED } from 'lib/handEvents';
 import { broadcastBus, type BroadcastedHandEvent } from 'lib/broadcastBus.server';
+import { isNaturalBlackjack } from 'lib/handMath';
 
 /**
  * Engine-backed action layer. All game-state transitions flow through
@@ -32,12 +33,16 @@ export async function createNewHand(params: {
   gameType: string;
   minimumBet?: number;
   maximumBet?: number;
+  numDecks?: number;
+  dealerHitsSoft17?: boolean;
 }): Promise<CreateHandResult> {
   if (params.gameType !== 'blackjack') {
     throw new Error(`unsupported game type: ${params.gameType}`);
   }
   const minimumBet = params.minimumBet ?? DEFAULT_MINIMUM_BET;
   const maximumBet = params.maximumBet ?? DEFAULT_MAXIMUM_BET;
+  const numDecks = params.numDecks ?? 1;
+  const dealerHitsSoft17 = params.dealerHitsSoft17 ?? false;
 
   const pendingBroadcasts: BroadcastedHandEvent[] = [];
 
@@ -65,7 +70,7 @@ export async function createNewHand(params: {
     const handSeatId = randomUUID();
 
     const initialState = blackjackEngine.initialState(
-      { minimumBet, maximumBet },
+      { minimumBet, maximumBet, numDecks, dealerHitsSoft17 },
       [handSeatId],
       defaultRng,
     );
@@ -228,10 +233,11 @@ async function applyMoneyMoves(
   actingUserId: string,
   tx: PrismaTransactionClient,
 ): Promise<void> {
-  // 1. Reserve any increase in the acting player's bet (place_bet → bet>0,
-  //    double_down → bet doubles). Atomic UPDATE rejects insufficient funds.
   const prevPlayer = prev.players.find((p) => p.id === actingHandSeatId);
   const nextPlayer = next.players.find((p) => p.id === actingHandSeatId);
+
+  // 1. Reserve any increase in the acting player's main bet (place_bet,
+  //    double_down). Atomic UPDATE rejects insufficient funds.
   const prevBet = prevPlayer?.bet ?? 0;
   const nextBet = nextPlayer?.bet ?? 0;
   if (nextBet > prevBet) {
@@ -248,8 +254,26 @@ async function applyMoneyMoves(
     );
   }
 
-  // 2. On terminal transition, credit each player `reserve + delta` so the
-  //    net flow matches the engine's intended payouts.
+  // 2. Reserve insurance the moment the acting player takes it.
+  if (
+    nextPlayer?.insuranceBet &&
+    nextPlayer.insuranceBet > 0 &&
+    (prevPlayer?.insuranceBet ?? null) === null
+  ) {
+    await recordMoneyTransaction(
+      {
+        userId: actingUserId,
+        type: 'debit',
+        amount: nextPlayer.insuranceBet,
+        gamePlayerId: actingHandSeatId,
+        note: 'reserve:insurance',
+      },
+      tx,
+    );
+  }
+
+  // 3. On terminal transition, credit each player `reserve + delta` on the
+  //    main bet, then credit insurance winners 3× their insurance bet.
   if (!blackjackEngine.isTerminal(prev) && blackjackEngine.isTerminal(next)) {
     for (const order of blackjackEngine.settle(next)) {
       const player = next.players.find((p) => p.id === order.playerId);
@@ -260,19 +284,7 @@ async function applyMoneyMoves(
       }
       if (credit === 0) continue;
 
-      const userId =
-        order.playerId === actingHandSeatId
-          ? actingUserId
-          : (
-              await tx.hand_seat.findUnique({
-                where: { id: order.playerId },
-                select: { user_id: true },
-              })
-            )?.user_id;
-      if (!userId) {
-        throw new Error(`could not resolve user for hand_seat ${order.playerId}`);
-      }
-
+      const userId = await resolveUserId(order.playerId, actingHandSeatId, actingUserId, tx);
       await recordMoneyTransaction(
         {
           userId,
@@ -284,7 +296,44 @@ async function applyMoneyMoves(
         tx,
       );
     }
+
+    // Insurance settlement. Dealer had natural BJ iff the hand ended with
+    // exactly 2 dealer cards totalling 21 (dealer never draws on natural).
+    const dealerNaturalBJ = isNaturalBlackjack(next.dealerHand);
+    if (dealerNaturalBJ) {
+      for (const player of next.players) {
+        if (player.insuranceBet && player.insuranceBet > 0) {
+          const userId = await resolveUserId(player.id, actingHandSeatId, actingUserId, tx);
+          await recordMoneyTransaction(
+            {
+              userId,
+              type: 'credit',
+              // 2:1 payout returns 3× the wager (reserve + 2× winnings).
+              amount: 3 * player.insuranceBet,
+              gamePlayerId: player.id,
+              note: 'settle:insurance_win',
+            },
+            tx,
+          );
+        }
+      }
+    }
   }
+}
+
+async function resolveUserId(
+  handSeatId: string,
+  actingHandSeatId: string,
+  actingUserId: string,
+  tx: PrismaTransactionClient,
+): Promise<string> {
+  if (handSeatId === actingHandSeatId) return actingUserId;
+  const seat = await tx.hand_seat.findUnique({
+    where: { id: handSeatId },
+    select: { user_id: true },
+  });
+  if (!seat) throw new Error(`could not resolve user for hand_seat ${handSeatId}`);
+  return seat.user_id;
 }
 
 async function writeAuditTrail(
@@ -384,6 +433,16 @@ export function parseBlackjackActionFromForm(
       }
       return { kind: 'place_bet', playerId: handSeatId, amount };
     }
+    case 'take insurance': {
+      const raw = formData.get('amount')?.toString() ?? '';
+      const amount = parseInt(raw, 10);
+      if (!Number.isInteger(amount)) {
+        throw new Error('invalid insurance amount');
+      }
+      return { kind: 'take_insurance', playerId: handSeatId, amount };
+    }
+    case 'decline insurance':
+      return { kind: 'decline_insurance', playerId: handSeatId };
     case 'hit':
       return { kind: 'hit', playerId: handSeatId };
     case 'stay':

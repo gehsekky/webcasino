@@ -1,9 +1,13 @@
-import { Link } from '@remix-run/react';
+import { Form, Link } from '@remix-run/react';
 import type { PlayerSlot } from 'lib/gameState';
 import { buttonClass } from 'lib/buttonStyle';
 
 type OutcomeBannerProps = {
   viewerSlot: PlayerSlot;
+  /** Area this hand belonged to. Determines where "New Hand" lands. */
+  area: { id: string; name: string } | null;
+  /** Game type this hand was. Used to start a same-game hand in the same area. */
+  gameType: string;
 };
 
 const OUTCOMES: Record<PlayerSlot['status'], { tone: string; title: string; detail: (slot: PlayerSlot) => string }> = {
@@ -42,7 +46,7 @@ const OUTCOMES: Record<PlayerSlot['status'], { tone: string; title: string; deta
   stood: { tone: '', title: '', detail: () => '' },
 };
 
-export default function OutcomeBanner({ viewerSlot }: OutcomeBannerProps) {
+export default function OutcomeBanner({ viewerSlot, area, gameType }: OutcomeBannerProps) {
   const config = OUTCOMES[viewerSlot.status];
   if (!config || !config.title) {
     return null;
@@ -52,9 +56,19 @@ export default function OutcomeBanner({ viewerSlot }: OutcomeBannerProps) {
     <div className={`rounded-xl px-6 py-5 ${config.tone} text-center shadow-lg`}>
       <p className="text-2xl font-bold uppercase tracking-wide">{config.title}</p>
       <p className="mt-1 text-lg font-semibold tabular-nums">{config.detail(viewerSlot)}</p>
-      <Link to="/" className={buttonClass({ variant: 'neutral', className: 'mt-4' })}>
-        New Hand
-      </Link>
+
+      {area ? (
+        <Form method="post" action={`/casino/${area.id}`} className="mt-4 inline-block">
+          <input type="hidden" name="game" value={gameType} />
+          <button type="submit" className={buttonClass({ variant: 'neutral' })}>
+            New Hand
+          </button>
+        </Form>
+      ) : (
+        <Link to="/" className={buttonClass({ variant: 'neutral', className: 'mt-4' })}>
+          New Hand
+        </Link>
+      )}
     </div>
   );
 }

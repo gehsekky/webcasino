@@ -27,7 +27,13 @@ export const PlayerStatusSchema = z.enum([
   'blackjack',
 ]);
 
-export const PhaseSchema = z.enum(['awaiting_bets', 'playing', 'dealer', 'settled']);
+export const PhaseSchema = z.enum([
+  'awaiting_bets',
+  'insurance_offered',
+  'playing',
+  'dealer',
+  'settled',
+]);
 
 export const PlayerSlotSchema = z.object({
   id: z.string(),
@@ -35,17 +41,31 @@ export const PlayerSlotSchema = z.object({
   bet: z.number().int().nonnegative(),
   doubled: z.boolean(),
   status: PlayerStatusSchema,
+  /**
+   * Player's insurance side-bet.
+   *  - `null`: no decision yet (insurance offered, player hasn't acted)
+   *  - `0`: insurance declined
+   *  - positive: insurance amount placed (max floor(bet / 2))
+   * Fields default to `null` so pre-insurance hand snapshots remain parseable.
+   */
+  insuranceBet: z.number().int().nonnegative().nullable().default(null),
 });
 export type PlayerStatus = z.infer<typeof PlayerStatusSchema>;
 export type Phase = z.infer<typeof PhaseSchema>;
 export type PlayerSlot = z.infer<typeof PlayerSlotSchema>;
 
+export const BlackjackConfigSchema = z.object({
+  minimumBet: z.number().int().nonnegative(),
+  maximumBet: z.number().int().nonnegative(),
+  /** How many 52-card decks are shuffled together into the shoe. */
+  numDecks: z.number().int().min(1).max(8).default(1),
+  /** If true, dealer hits soft 17 (H17). If false, dealer stands on all 17 (S17). */
+  dealerHitsSoft17: z.boolean().default(false),
+});
+
 export const BlackjackStateSchema = z.object({
   type: z.literal('blackjack'),
-  config: z.object({
-    minimumBet: z.number().int().nonnegative(),
-    maximumBet: z.number().int().nonnegative(),
-  }),
+  config: BlackjackConfigSchema,
   deck: z.array(CardSchema),
   dealerHand: z.array(CardSchema),
   dealerCardsRevealed: z.boolean(),

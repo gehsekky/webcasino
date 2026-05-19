@@ -4,17 +4,18 @@ import type { BlackjackState } from './types';
 import type { CardData } from 'lib/gameState';
 import { defaultRng, seededRng } from '../rng';
 
-const CONFIG = { minimumBet: 5, maximumBet: 100, playerIds: ['p1'] };
+const CONFIG = { minimumBet: 5, maximumBet: 100, numDecks: 1, dealerHitsSoft17: false };
+const STATE_CONFIG = { minimumBet: CONFIG.minimumBet, maximumBet: CONFIG.maximumBet, numDecks: 1, dealerHitsSoft17: false };
 
 /** Build a deterministic state with a custom deck. The TOP of the deck is the LAST element of the array. */
 function withDeck(deck: CardData[], overrides: Partial<BlackjackState> = {}): BlackjackState {
   return {
     type: 'blackjack',
-    config: { minimumBet: CONFIG.minimumBet, maximumBet: CONFIG.maximumBet },
+    config: STATE_CONFIG,
     deck: [...deck],
     dealerHand: [],
     dealerCardsRevealed: false,
-    players: [{ id: 'p1', cards: [], bet: 0, doubled: false, status: 'awaiting_bet' }],
+    players: [{ id: 'p1', cards: [], bet: 0, doubled: false, status: 'awaiting_bet', insuranceBet: null }],
     phase: 'awaiting_bets',
     toAct: null,
     ...overrides,
@@ -24,11 +25,28 @@ function withDeck(deck: CardData[], overrides: Partial<BlackjackState> = {}): Bl
 const c = (suit: 'hearts' | 'spades' | 'clubs' | 'diamonds', rank: '2'|'3'|'4'|'5'|'6'|'7'|'8'|'9'|'10'|'Jack'|'Queen'|'King'|'Ace'): CardData => ({ suit, rank });
 
 describe('blackjackEngine.initialState', () => {
-  it('produces a fresh shuffled 52-card deck', () => {
+  it('produces a fresh shuffled 52-card deck for a 1-deck shoe', () => {
     const s = blackjackEngine.initialState(CONFIG, ['p1', 'p2'], defaultRng);
     expect(s.deck).toHaveLength(52);
     const keys = new Set(s.deck.map((c) => `${c.suit}-${c.rank}`));
     expect(keys.size).toBe(52);
+  });
+
+  it('multi-deck shoe: 4 decks → 208 cards, 8 decks → 416 cards', () => {
+    const s4 = blackjackEngine.initialState({ ...CONFIG, numDecks: 4 }, ['p1'], defaultRng);
+    expect(s4.deck).toHaveLength(208);
+    const s8 = blackjackEngine.initialState({ ...CONFIG, numDecks: 8 }, ['p1'], defaultRng);
+    expect(s8.deck).toHaveLength(416);
+  });
+
+  it('persists rule config (numDecks, dealerHitsSoft17) on the state', () => {
+    const s = blackjackEngine.initialState(
+      { minimumBet: 25, maximumBet: 1000, numDecks: 6, dealerHitsSoft17: true },
+      ['p1'],
+      defaultRng,
+    );
+    expect(s.config.numDecks).toBe(6);
+    expect(s.config.dealerHitsSoft17).toBe(true);
   });
 
   it('initializes all seats to awaiting_bet with zero cards', () => {
@@ -105,13 +123,14 @@ describe('blackjackEngine deal_initial dealer naturals', () => {
   });
 
   it('pushes player vs dealer when both have naturals', () => {
-    // Dealer: A♠ + K♣. Player: A♥ + K♦.
-    // pop order: K♦ (p), A♥ (p), K♣ (d), A♠ (d)
-    // Wait — that gives dealer K♣ + A♠ = 21 (natural), player A♥ + K♦ = 21 (natural). Good.
-    // Reverse to set the array: bottom → top
+    // Pop order: K♦ (p), A♥ (p), K♣ (dealer hole), A♠ (dealer up).
+    // Dealer up-card is an Ace, so we enter insurance phase first.
     const deck: CardData[] = [c('spades','Ace'), c('clubs','King'), c('hearts','Ace'), c('diamonds','King')];
     let state = withDeck(deck);
     state = blackjackEngine.applyAction(state, 'p1', { kind: 'place_bet', playerId: 'p1', amount: 10 }, defaultRng);
+    expect(state.phase).toBe('insurance_offered');
+    // Player declines insurance; engine then peeks and settles the natural push.
+    state = blackjackEngine.applyAction(state, 'p1', { kind: 'decline_insurance', playerId: 'p1' }, defaultRng);
     expect(state.phase).toBe('settled');
     expect(state.players[0].status).toBe('pushed');
   });
@@ -134,11 +153,11 @@ describe('blackjackEngine hit/stay/double/surrender', () => {
   function playingState(playerCards: CardData[], deck: CardData[]): BlackjackState {
     return {
       type: 'blackjack',
-      config: { minimumBet: 5, maximumBet: 100 },
+      config: STATE_CONFIG,
       deck: [...deck],
       dealerHand: [c('hearts','7'), c('diamonds','9')], // 16
       dealerCardsRevealed: false,
-      players: [{ id: 'p1', cards: [...playerCards], bet: 10, doubled: false, status: 'in_hand' }],
+      players: [{ id: 'p1', cards: [...playerCards], bet: 10, doubled: false, status: 'in_hand', insuranceBet: null }],
       phase: 'playing',
       toAct: 'p1',
     };
@@ -198,17 +217,125 @@ describe('blackjackEngine hit/stay/double/surrender', () => {
   });
 });
 
+describe('blackjackEngine insurance', () => {
+  it('enters insurance_offered when dealer up-card is Ace', () => {
+    // Pop order: 5♥, 5♦, K♣ (hole), A♠ (up).
+    const deck: CardData[] = [c('spades','Ace'), c('clubs','King'), c('diamonds','5'), c('hearts','5')];
+    let state = withDeck(deck);
+    state = blackjackEngine.applyAction(state, 'p1', { kind: 'place_bet', playerId: 'p1', amount: 20 }, defaultRng);
+    expect(state.phase).toBe('insurance_offered');
+    expect(state.players[0].insuranceBet).toBeNull();
+  });
+
+  it('does not offer insurance when up-card is not an Ace', () => {
+    // Pop order: 5♥, 5♦, A♠ (hole), K♣ (up). Dealer has natural but up-card isn't Ace.
+    const deck: CardData[] = [c('clubs','King'), c('spades','Ace'), c('diamonds','5'), c('hearts','5')];
+    let state = withDeck(deck);
+    state = blackjackEngine.applyAction(state, 'p1', { kind: 'place_bet', playerId: 'p1', amount: 10 }, defaultRng);
+    // Engine peeks directly; dealer natural settles immediately.
+    expect(state.phase).toBe('settled');
+  });
+
+  it('rejects insurance exceeding half the main wager', () => {
+    const deck: CardData[] = [c('spades','Ace'), c('clubs','King'), c('diamonds','5'), c('hearts','5')];
+    let state = withDeck(deck);
+    state = blackjackEngine.applyAction(state, 'p1', { kind: 'place_bet', playerId: 'p1', amount: 20 }, defaultRng);
+    expect(() =>
+      blackjackEngine.applyAction(state, 'p1', { kind: 'take_insurance', playerId: 'p1', amount: 11 }, defaultRng),
+    ).toThrow(/exceeds the cap/);
+  });
+
+  it('decline_insurance + dealer natural → settled, no payout owed', () => {
+    // Both have naturals. Pop order: K♦ (p), A♥ (p), K♣ (hole), A♠ (up).
+    const deck: CardData[] = [c('spades','Ace'), c('clubs','King'), c('hearts','Ace'), c('diamonds','King')];
+    let state = withDeck(deck);
+    state = blackjackEngine.applyAction(state, 'p1', { kind: 'place_bet', playerId: 'p1', amount: 10 }, defaultRng);
+    state = blackjackEngine.applyAction(state, 'p1', { kind: 'decline_insurance', playerId: 'p1' }, defaultRng);
+    expect(state.phase).toBe('settled');
+    expect(state.players[0].insuranceBet).toBe(0);
+  });
+
+  it('take_insurance + dealer natural → settled with insuranceBet preserved', () => {
+    const deck: CardData[] = [c('clubs','7'), c('hearts','2'), c('spades','Ace'), c('clubs','King'), c('hearts','Ace'), c('diamonds','King')];
+    let state = withDeck(deck);
+    state = blackjackEngine.applyAction(state, 'p1', { kind: 'place_bet', playerId: 'p1', amount: 20 }, defaultRng);
+    expect(state.phase).toBe('insurance_offered');
+    state = blackjackEngine.applyAction(state, 'p1', { kind: 'take_insurance', playerId: 'p1', amount: 10 }, defaultRng);
+    expect(state.phase).toBe('settled');
+    expect(state.players[0].insuranceBet).toBe(10);
+  });
+
+  it('take_insurance + dealer non-natural → continues to playing phase', () => {
+    // Player gets 5+6=11; dealer up-card Ace, hole 7 (no natural).
+    // Pop order: 6♣ (p), 5♥ (p), 7♣ (hole), A♠ (up).
+    const deck: CardData[] = [c('spades','Ace'), c('clubs','7'), c('clubs','6'), c('hearts','5')];
+    let state = withDeck(deck);
+    state = blackjackEngine.applyAction(state, 'p1', { kind: 'place_bet', playerId: 'p1', amount: 20 }, defaultRng);
+    state = blackjackEngine.applyAction(state, 'p1', { kind: 'take_insurance', playerId: 'p1', amount: 10 }, defaultRng);
+    expect(state.phase).toBe('playing');
+    expect(state.players[0].insuranceBet).toBe(10);
+    expect(state.toAct).toBe('p1');
+  });
+});
+
+describe('blackjackEngine dealer soft 17 (H17 vs S17)', () => {
+  function dealerState(dealerHand: CardData[], deck: CardData[], dealerHitsSoft17: boolean): BlackjackState {
+    return {
+      type: 'blackjack',
+      config: { minimumBet: 5, maximumBet: 100, numDecks: 1, dealerHitsSoft17 },
+      deck: [...deck],
+      dealerHand: [...dealerHand],
+      dealerCardsRevealed: false,
+      players: [{ id: 'p1', cards: [c('clubs', '10'), c('clubs', '7')], bet: 10, doubled: false, status: 'stood', insuranceBet: null }],
+      phase: 'dealer',
+      toAct: null,
+    };
+  }
+
+  it('S17: dealer stands on soft 17 (A+6)', () => {
+    const state = dealerState([c('hearts', 'Ace'), c('diamonds', '6')], [], false);
+    const next = blackjackEngine.applyAction(state, 'dealer', { kind: 'dealer_play' }, defaultRng);
+    expect(next.dealerHand).toHaveLength(2); // no extra draws
+  });
+
+  it('H17: dealer hits soft 17 once, then stands when next card makes it hard 17+', () => {
+    // Dealer A + 6 = soft 17. Top of deck: King → A + 6 + K = hard 17 (ace demotes).
+    const state = dealerState([c('hearts', 'Ace'), c('diamonds', '6')], [c('spades', 'King')], true);
+    const next = blackjackEngine.applyAction(state, 'dealer', { kind: 'dealer_play' }, defaultRng);
+    expect(next.dealerHand).toHaveLength(3);
+    expect(next.dealerHand[2].rank).toBe('King');
+  });
+
+  it('S17 vs H17 only differ on soft 17 — both stand on hard 17', () => {
+    const hard17 = [c('hearts', '10'), c('diamonds', '7')];
+    const s17 = blackjackEngine.applyAction(
+      dealerState(hard17, [c('spades', 'King')], false),
+      'dealer',
+      { kind: 'dealer_play' },
+      defaultRng,
+    );
+    const h17 = blackjackEngine.applyAction(
+      dealerState(hard17, [c('spades', 'King')], true),
+      'dealer',
+      { kind: 'dealer_play' },
+      defaultRng,
+    );
+    expect(s17.dealerHand).toHaveLength(2);
+    expect(h17.dealerHand).toHaveLength(2);
+  });
+});
+
 describe('blackjackEngine dealer_play', () => {
   it('dealer hits until 17 and settles winners/losers', () => {
     // Dealer 6+10 = 16. Player stood on 19. Deck top: King (dealer hits, busts).
     // pop order: King (d hits to 16+10=26 → bust)
     const state: BlackjackState = {
       type: 'blackjack',
-      config: { minimumBet: 5, maximumBet: 100 },
+      config: STATE_CONFIG,
       deck: [c('spades','King')],
       dealerHand: [c('hearts','6'), c('diamonds','10')],
       dealerCardsRevealed: false,
-      players: [{ id: 'p1', cards: [c('clubs','10'), c('clubs','9')], bet: 10, doubled: false, status: 'stood' }],
+      players: [{ id: 'p1', cards: [c('clubs','10'), c('clubs','9')], bet: 10, doubled: false, status: 'stood', insuranceBet: null }],
       phase: 'dealer',
       toAct: null,
     };
@@ -221,11 +348,11 @@ describe('blackjackEngine dealer_play', () => {
   it('dealer stands on 17 and player loses with 16', () => {
     const state: BlackjackState = {
       type: 'blackjack',
-      config: { minimumBet: 5, maximumBet: 100 },
+      config: STATE_CONFIG,
       deck: [],
       dealerHand: [c('hearts','10'), c('diamonds','7')], // 17
       dealerCardsRevealed: false,
-      players: [{ id: 'p1', cards: [c('clubs','10'), c('clubs','6')], bet: 10, doubled: false, status: 'stood' }],
+      players: [{ id: 'p1', cards: [c('clubs','10'), c('clubs','6')], bet: 10, doubled: false, status: 'stood', insuranceBet: null }],
       phase: 'dealer',
       toAct: null,
     };
@@ -236,11 +363,11 @@ describe('blackjackEngine dealer_play', () => {
   it('player push when totals tie', () => {
     const state: BlackjackState = {
       type: 'blackjack',
-      config: { minimumBet: 5, maximumBet: 100 },
+      config: STATE_CONFIG,
       deck: [],
       dealerHand: [c('hearts','10'), c('diamonds','8')], // 18
       dealerCardsRevealed: false,
-      players: [{ id: 'p1', cards: [c('clubs','King'), c('clubs','8')], bet: 10, doubled: false, status: 'stood' }],
+      players: [{ id: 'p1', cards: [c('clubs','King'), c('clubs','8')], bet: 10, doubled: false, status: 'stood', insuranceBet: null }],
       phase: 'dealer',
       toAct: null,
     };
@@ -253,11 +380,11 @@ describe('blackjackEngine.settle', () => {
   function settledState(status: 'won' | 'lost' | 'busted' | 'pushed' | 'surrendered' | 'blackjack'): BlackjackState {
     return {
       type: 'blackjack',
-      config: { minimumBet: 5, maximumBet: 100 },
+      config: STATE_CONFIG,
       deck: [],
       dealerHand: [],
       dealerCardsRevealed: true,
-      players: [{ id: 'p1', cards: [], bet: 10, doubled: false, status }],
+      players: [{ id: 'p1', cards: [], bet: 10, doubled: false, status, insuranceBet: null }],
       phase: 'settled',
       toAct: null,
     };
@@ -300,13 +427,13 @@ describe('blackjackEngine chip conservation invariant', () => {
     // For a state with all players pushed, no settlements happen.
     const state: BlackjackState = {
       type: 'blackjack',
-      config: { minimumBet: 5, maximumBet: 100 },
+      config: STATE_CONFIG,
       deck: [],
       dealerHand: [],
       dealerCardsRevealed: true,
       players: [
-        { id: 'a', cards: [], bet: 10, doubled: false, status: 'pushed' },
-        { id: 'b', cards: [], bet: 20, doubled: false, status: 'pushed' },
+        { id: 'a', cards: [], bet: 10, doubled: false, status: 'pushed', insuranceBet: null },
+        { id: 'b', cards: [], bet: 20, doubled: false, status: 'pushed', insuranceBet: null },
       ],
       phase: 'settled',
       toAct: null,

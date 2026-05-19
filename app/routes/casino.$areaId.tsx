@@ -56,6 +56,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
     gameType: game.id,
     minimumBet: game.minimumBet,
     maximumBet: game.maximumBet,
+    numDecks: game.rules?.numDecks,
+    dealerHitsSoft17: game.rules?.dealerHitsSoft17,
   });
   return redirect(`/game/${handSeatId}`);
 }
