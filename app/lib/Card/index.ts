@@ -1,11 +1,13 @@
+import type { Suit, Rank } from 'lib/gameState';
+
 class Card {
-  suit : string;
-  rank : string;
+  suit : Suit;
+  rank : Rank;
 
-  static suits : string[] = ['hearts', 'spades', 'clubs', 'diamonds'];
-  static ranks : string[] = ['Ace', '2', '3', '4', '5', '6', '7', '8', '9', 'Jack', 'Queen', 'King'];
+  static suits : Suit[] = ['hearts', 'spades', 'clubs', 'diamonds'];
+  static ranks : Rank[] = ['Ace', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'Jack', 'Queen', 'King'];
 
-  constructor(suit : string, rank : string) {
+  constructor(suit : Suit, rank : Rank) {
     this.suit = suit;
     this.rank = rank;
   }
@@ -14,7 +16,7 @@ class Card {
     let sum = 0;
     let hasAce = false;
     for (const card of cards) {
-      if (['2', '3', '4', '5', '6', '7', '8', '9'].indexOf(card.rank) > -1) {
+      if (['2', '3', '4', '5', '6', '7', '8', '9', '10'].indexOf(card.rank) > -1) {
         sum += parseInt(card.rank);
       } else if (['Jack', 'Queen', 'King'].indexOf(card.rank) > -1) {
         sum += 10;

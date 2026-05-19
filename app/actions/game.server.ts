@@ -1,25 +1,22 @@
-import { Prisma, PrismaClient, user } from '@prisma/client';
+import { Prisma, user } from '@prisma/client';
 import { DEFAULT_MAXIMUM_BET, DEFAULT_MINIMUM_BET } from 'constants/';
 import Deck from 'lib/Deck';
-import { GamePlayerDTO, GamePlayerData, getGamePlayerBetAmount, getGamePlayerById, submitAction, updateGamePlayer } from './gamePlayer';
+import { GamePlayerDTO, getGamePlayerBetAmount, getGamePlayerById, submitAction, updateGamePlayer } from './gamePlayer.server';
 import Card from 'lib/Card';
-import { createGamePlayerBet } from './gamePlayerBet';
-import { createMoneyTransaction } from './moneyTransaction';
-import { createGamePlayerRound } from './gamePlayerRound';
+import { createGamePlayerBet } from './gamePlayerBet.server';
+import { createMoneyTransaction } from './moneyTransaction.server';
+import { createGamePlayerRound } from './gamePlayerRound.server';
+import { prisma, type PrismaTransactionClient } from 'db.server';
 
-const prisma = new PrismaClient();
-export type PrismaTransactionClient = Omit<PrismaClient, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">;
+export type { PrismaTransactionClient };
+export type { GameData } from 'lib/gameState';
+import { parseBlackjackState, parseGamePlayerState, type GameData, type CardData } from 'lib/gameState';
 export type GameDTO = Prisma.gameGetPayload<{ include: { game_player: { include: { user: true, game_player_bet: true, game_player_round: true }}}}>;
-export type GameData = {
-  type: string;
-  minimumBet: number;
-  maximumBet: number;
-  deck: Card[];
-  dealerHand: Card[],
-  dealerCardsRevealed : boolean,
-}
 
 export const createNewGameAndGamePlayer = async (type : string, createdBy : user) => {
+  if (type !== 'blackjack') {
+    throw new Error(`unsupported game type: ${type}`);
+  }
   const newDeck = new Deck();
   const gameData : GameData = {
     type,
@@ -117,8 +114,9 @@ export const updateGame = async (game : GameDTO | null, tx : PrismaTransactionCl
 };
 
 export const dealToDealer = async (game : GameDTO | null, tx : PrismaTransactionClient) => {
-  const hand : Card[] = [];
-  const gameData = game?.data as unknown as GameData;
+  if (!game) throw new Error('dealToDealer called without game');
+  const hand: CardData[] = [];
+  const gameData = parseBlackjackState(game.data);
   if (gameData.deck.length < 2) {
     throw new Error('not enough cards in deck to deal to dealer');
   }
@@ -131,23 +129,27 @@ export const dealToDealer = async (game : GameDTO | null, tx : PrismaTransaction
   }
 
   gameData.dealerHand = hand;
+  game.data = gameData;
   await updateGame(game, tx);
 }
 
 export const dealToPlayer = async (game : GameDTO | null, gamePlayer : GamePlayerDTO, round : number, tx : PrismaTransactionClient) => {
-  const hand = [];
-  const gameData = game?.data as unknown as GameData;
+  if (!game) throw new Error('dealToPlayer called without game');
+  const hand: CardData[] = [];
+  const gameData = parseBlackjackState(game.data);
   if (gameData.deck.length < 2) {
     throw new Error('not enough cards in deck to deal to player');
   }
   for (let i = 0; i < 2; i++) {
-    const popped =gameData.deck.pop();
+    const popped = gameData.deck.pop();
     if (!popped) {
       throw new Error('could not fetch card from deck for player');
     }
     hand.push(popped);
   }
-  (gamePlayer.data as unknown as GamePlayerData).cards = hand;
+  const playerData = parseGamePlayerState(gamePlayer.data);
+  playerData.cards = hand;
+  gamePlayer.data = playerData;
   await updateGamePlayer(gamePlayer, tx);
 
   const gamePlayerRound = await createGamePlayerRound(gamePlayer.id, 'deal', round, tx);
@@ -155,42 +157,44 @@ export const dealToPlayer = async (game : GameDTO | null, gamePlayer : GamePlaye
     throw new Error(`could not create game player round for gamePlayerId: ${gamePlayer.id}`);
   }
 
+  game.data = gameData;
   await updateGame(game, tx);
 }
 
 export const startGame = async (game : GameDTO | null) => {
   await prisma.$transaction(async (tx) => {
     // deal cards
-    game?.game_player.forEach(async (game_player) => {
-      await dealToPlayer(game, game_player, 1, tx);
-    });
+    if (game?.game_player) {
+      for (const game_player of game.game_player) {
+        await dealToPlayer(game, game_player, 1, tx);
+      }
+    }
 
     // deal to dealer
     await dealToDealer(game, tx);
 
-    game = await getGameById(game?.id || '');
-    const gameData = game?.data as unknown as GameData;
+    game = await getGameById(game?.id || '', tx);
+    const gameData = parseBlackjackState(game?.data);
     // check if dealer has 21
     if (Card.has21(gameData.dealerHand) && game?.game_player) {
-      for (const game_player of game?.game_player) {
-        const total = Card.getTotal((game_player.data as unknown as GamePlayerData).cards);
+      for (const game_player of game.game_player) {
+        const total = Card.getTotal(parseGamePlayerState(game_player.data).cards);
         const bet = getGamePlayerBetAmount(game_player);
         if (total === 21) {
           // player push
           await submitAction(game_player, 1, 'push', tx);
         } else {
-          // lose (money is already debit on bet so we don't need to update)
           await submitAction(game_player, 1, 'lose', tx);
-          // debit money from user
           await createMoneyTransaction(game_player.user, 'debit', bet, game_player.id, null, tx);
         }
       }
       gameData.dealerCardsRevealed = true;
+      if (game) game.data = gameData;
       game = await updateGame(game, tx);
     } else {
       if (game?.game_player) {
-        for (const game_player of game?.game_player) {
-          const gamePlayerData = game_player.data as unknown as GamePlayerData;
+        for (const game_player of game.game_player) {
+          const gamePlayerData = parseGamePlayerState(game_player.data);
           const total = Card.getTotal(gamePlayerData.cards);
           const bet = getGamePlayerBetAmount(game_player);
           if (total === 21) {
@@ -207,7 +211,7 @@ export const startGame = async (game : GameDTO | null) => {
 
 export const endGame = async (game : GameDTO | null) => {
   await prisma.$transaction(async (tx) => {
-    const gameData = game?.data as unknown as GameData;
+    const gameData = parseBlackjackState(game?.data);
     gameData.dealerCardsRevealed = true;
     let stop = false;
     let sum = Card.getTotal(gameData.dealerHand);
@@ -226,9 +230,9 @@ export const endGame = async (game : GameDTO | null) => {
   
     if (game?.game_player) {
       // check for bust. if yes, everyone under 21 wins
-      for (const game_player of game?.game_player) {
+      for (const game_player of game.game_player) {
         // get highest round
-        const gamePlayerData = game_player.data as unknown as GamePlayerData;
+        const gamePlayerData = parseGamePlayerState(game_player.data);
         const maxRound = Math.max(...game_player.game_player_round.map((round) => round.round));
         const lastRound = game_player.game_player_round.find((round) => round.round === maxRound);
         if (!lastRound) {
@@ -254,6 +258,7 @@ export const endGame = async (game : GameDTO | null) => {
       }
     }
 
+    if (game) game.data = gameData;
     await updateGame(game, tx);
   });
 }
@@ -263,7 +268,25 @@ export const placeInitialBet = async (gamePlayer : GamePlayerDTO, amount : numbe
     tx = prisma;
   }
 
-  // handle placing initial bet
+  if (!Number.isInteger(amount) || amount <= 0) {
+    throw new Error('bet amount must be a positive integer');
+  }
+
+  const game = await getGameById(gamePlayer.game_id, tx);
+  if (!game) {
+    throw new Error('game not found for bet');
+  }
+  const gameData = parseBlackjackState(game.data);
+  if (amount < gameData.minimumBet) {
+    throw new Error(`bet of ${amount} is below table minimum (${gameData.minimumBet})`);
+  }
+  if (amount > gameData.maximumBet) {
+    throw new Error(`bet of ${amount} exceeds table maximum (${gameData.maximumBet})`);
+  }
+  if (amount > gamePlayer.user.money) {
+    throw new Error(`bet of ${amount} exceeds available balance (${gamePlayer.user.money})`);
+  }
+
   const gamePlayerBet = await createGamePlayerBet(gamePlayer.id, amount, 'initial', tx);
   if (!gamePlayerBet) {
     throw new Error('could not create game player bet');

@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import Card from 'lib/Card';
 
 class Deck {
@@ -25,8 +26,11 @@ class Deck {
   }
 
   shuffle() {
+    // Fisher-Yates with crypto.randomInt for CSPRNG-backed shuffling.
+    // Server-only (node:crypto) — importing this from a browser bundle
+    // fails at module load by design.
     for (let i = this.cards.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = randomInt(0, i + 1);
       [this.cards[i], this.cards[j]] = [this.cards[j], this.cards[i]];
     }
   }

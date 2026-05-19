@@ -80,5 +80,13 @@ module.exports = {
         node: true,
       },
     },
+
+    // Test files
+    {
+      files: ["**/*.spec.{ts,tsx}"],
+      rules: {
+        "import/no-named-as-default-member": "off",
+      },
+    },
   ],
 };

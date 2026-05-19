@@ -1,7 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-import { PrismaTransactionClient } from './game';
-
-const prisma = new PrismaClient();
+import { prisma, type PrismaTransactionClient } from 'db.server';
 
 export const createGamePlayerRound = async (gamePlayerId : string, action : string, round: number, tx? : PrismaTransactionClient) => {
   if (!tx) {

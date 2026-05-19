@@ -1,4 +1,4 @@
-import { GamePlayerDTO } from 'actions/gamePlayer';
+import type { GamePlayerDTO } from 'actions/gamePlayer.server';
 
 type GameRoundLogProps = {
   gamePlayer : GamePlayerDTO;

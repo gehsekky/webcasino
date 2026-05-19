@@ -1,7 +1,8 @@
-import type { GameData, GameDTO } from 'actions/game';
-import { GamePlayerDTO } from 'actions/gamePlayer';
+import type { GameDTO } from 'actions/game.server';
+import type { GamePlayerDTO } from 'actions/gamePlayer.server';
 import BlackJackLanding from 'components/BlackJackLanding';
 import Header from 'components/Header';
+import { parseBlackjackState } from 'lib/gameState';
 
 type GameLandingProps = {
   game : GameDTO;
@@ -9,19 +10,17 @@ type GameLandingProps = {
 }
 
 const loadGameComponent = (game : GameDTO, gamePlayer : GamePlayerDTO) => {
-  const gameData = game.data as unknown as GameData;
+  const gameData = parseBlackjackState(game.data);
   switch (gameData.type) {
     case 'blackjack':
       return <BlackJackLanding game={game} gamePlayer={gamePlayer} />
-    case 'poker':
-      break;
     default:
       throw new Error(`unrecognized game type: ${gameData.type}`);
   }
 };
 
 const GameLanding = ({ game, gamePlayer } : GameLandingProps) => {
-  const gameData = game.data as unknown as GameData;
+  const gameData = parseBlackjackState(game.data);
   return (
     <>
       <Header title={gameData.type} />

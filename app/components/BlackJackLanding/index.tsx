@@ -3,8 +3,10 @@ import PlayerInfo from './PlayerInfo';
 import { Form } from '@remix-run/react';
 import PlayerOutcome from './PlayerOutcome';
 import GameRoundLog from 'components/BlackJackLanding/GameRoundLog';
-import type { GameData, GameDTO } from 'actions/game';
-import { GamePlayerData, GamePlayerDTO, getGamePlayerBetAmount } from 'actions/gamePlayer';
+import type { GameDTO } from 'actions/game.server';
+import type { GamePlayerDTO } from 'actions/gamePlayer.server';
+import { getGamePlayerBetAmount } from 'lib/gamePlayerBet';
+import { parseBlackjackState, parseGamePlayerState } from 'lib/gameState';
 
 type BlackJackLandingProps = {
   game: GameDTO;
@@ -12,7 +14,7 @@ type BlackJackLandingProps = {
 };
 
 const BlackJackLanding = ({ game, gamePlayer } : BlackJackLandingProps) => {
-  const gameData = game.data as unknown as GameData;
+  const gameData = parseBlackjackState(game.data);
   const arePlayersDoneBetting = game.game_player.every((player) => player.game_player_bet.some((bet) => bet.type === 'initial'));
   const hasGameStarted = gameData.dealerHand.length > 0;
   const showActionBar = !gamePlayer.game_player_round.some((round) => ['stay', 'win', 'lose', 'push'].indexOf(round.action) > -1);
@@ -30,7 +32,7 @@ const BlackJackLanding = ({ game, gamePlayer } : BlackJackLandingProps) => {
       <>
         <div>players not done betting:</div>
         <ul>
-          {game.game_player.filter((gamePlayer) => !gamePlayer.game_player_bet.length).map((gamePlayer) => <li>{gamePlayer.user.name}</li>)}
+          {game.game_player.filter((gamePlayer) => !gamePlayer.game_player_bet.length).map((gamePlayer) => <li key={gamePlayer.id}>{gamePlayer.user.name}</li>)}
         </ul>
       </>
     );
@@ -45,7 +47,7 @@ const BlackJackLanding = ({ game, gamePlayer } : BlackJackLandingProps) => {
         <div className="flex flex-row">
           {
             game.game_player.map((player) => {
-              const playerData = player.data as unknown as GamePlayerData;
+              const playerData = parseGamePlayerState(player.data);
               const gamePlayerBet = getGamePlayerBetAmount(player);
 
               return (

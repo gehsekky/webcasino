@@ -7,7 +7,8 @@ CREATE EXTENSION "uuid-ossp";
 
 CREATE TABLE public.user (
   id UUID NOT NULL DEFAULT uuid_generate_v4(),
-  name varchar(256) NOT NULL UNIQUE,
+  name varchar(256) NOT NULL,
+  email varchar(256) UNIQUE,
   salt varchar(32),
   password_hash varchar(512),
   money integer NOT NULL DEFAULT 0,
@@ -15,6 +16,19 @@ CREATE TABLE public.user (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   PRIMARY KEY (id)
 );
+
+CREATE TABLE public.oauth_identity (
+  id UUID NOT NULL DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES public.user(id) ON DELETE CASCADE,
+  provider varchar(32) NOT NULL,
+  provider_user_id varchar(256) NOT NULL,
+  email varchar(256),
+  linked_at timestamp with time zone NOT NULL DEFAULT now(),
+  PRIMARY KEY (id),
+  UNIQUE (provider, provider_user_id)
+);
+
+CREATE INDEX idx_oauth_identity_user_id ON public.oauth_identity(user_id);
 
 CREATE TABLE public.game (
   id UUID NOT NULL DEFAULT uuid_generate_v4(),
@@ -63,6 +77,7 @@ CREATE TABLE public.money_transaction (
   type varchar(32) NOT NULL,
   amount integer NOT NULL,
   note varchar(512),
+  idempotency_key varchar(128) UNIQUE,
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   PRIMARY KEY (id)

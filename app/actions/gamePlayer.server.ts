@@ -1,17 +1,16 @@
-import { Prisma, PrismaClient, game_player_bet, game_player_round } from '@prisma/client';
-import { PrismaTransactionClient, getGameById, updateGame } from './game';
-import type { GameData } from 'actions/game';
+import { Prisma, game_player_bet, game_player_round } from '@prisma/client';
+import { getGameById, updateGame } from './game.server';
 import Card from 'lib/Card';
-import { createMoneyTransaction } from './moneyTransaction';
-
-const prisma = new PrismaClient();
+import { createMoneyTransaction } from './moneyTransaction.server';
+import { prisma, type PrismaTransactionClient } from 'db.server';
+import { parseBlackjackState, parseGamePlayerState } from 'lib/gameState';
+import { getGamePlayerBetAmount } from 'lib/gamePlayerBet';
+export type { GamePlayerData } from 'lib/gameState';
+export { getGamePlayerBetAmount };
 
 export type GamePlayerDTO = Prisma.game_playerGetPayload<{ include: { user: true, game_player_bet: true, game_player_round: true }}>;
 export type GamePlayerRoundDTO = game_player_round;
 export type GamePlayerBetDTO = game_player_bet;
-export type GamePlayerData = {
-  cards : Card[];
-};
 
 export const getGamePlayerById = async (gamePlayerId : string, tx? : PrismaTransactionClient) => {
   if (!tx) {
@@ -42,20 +41,23 @@ export const createGamePlayerRoundForAction = async (gamePlayerDTO : GamePlayerD
   }
 
   const gameDTO = await getGameById(gamePlayerDTO.game_id, tx);
-  const deck = (gameDTO?.data as unknown as GameData).deck;
-  if (!deck) {
-    throw new Error('could not get game deck');
+  if (!gameDTO) {
+    throw new Error('could not get game for player action');
   }
-  if (deck.length === 0) {
+  const gameState = parseBlackjackState(gameDTO.data);
+  if (gameState.deck.length === 0) {
     throw new Error('deck is empty');
   }
 
   if (['hit', 'double down'].indexOf(action) > -1) {
-    const popped = deck.pop();
+    const popped = gameState.deck.pop();
     if (!popped) {
       throw new Error('could not get popped card');
     }
-    (gamePlayerDTO.data as unknown as GamePlayerData).cards.push(popped);
+    const playerData = parseGamePlayerState(gamePlayerDTO.data);
+    playerData.cards.push(popped);
+    gamePlayerDTO.data = playerData;
+    gameDTO.data = gameState;
     await updateGamePlayer(gamePlayerDTO, tx);
     await updateGame(gameDTO, tx);
   }
@@ -80,14 +82,13 @@ export const updateGamePlayer = async (gamePlayer : GamePlayerDTO, tx? : PrismaT
     tx = prisma;
   }
 
+  const playerData = parseGamePlayerState(gamePlayer.data);
   const player = await tx.game_player.update({
     where: {
       id: gamePlayer.id,
     },
     data: {
-      data: {
-        cards: (gamePlayer.data as unknown as GamePlayerData).cards
-      } as unknown as Prisma.JsonObject
+      data: { cards: playerData.cards } as unknown as Prisma.JsonObject
     }
   });
 
@@ -110,7 +111,7 @@ export const submitAction = async (gamePlayerDTO : GamePlayerDTO, currentRound: 
 
   if (['hit', 'double down'].indexOf(action) > -1) {
     // check for bust and add record if necessary
-    if (Card.isBust((gamePlayerDTO.data as unknown as GamePlayerData).cards)) {
+    if (Card.isBust(parseGamePlayerState(gamePlayerDTO.data).cards)) {
       await createGamePlayerRoundForAction(gamePlayerDTO, currentRound + 1, 'lose', tx);
       const bet = getGamePlayerBetAmount(gamePlayerDTO);
       await createMoneyTransaction(gamePlayerDTO.user, 'debit', bet, gamePlayerDTO.id, null, tx);
@@ -126,18 +127,3 @@ export const submitAction = async (gamePlayerDTO : GamePlayerDTO, currentRound: 
   return gamePlayerRound;
 }
 
-export const getGamePlayerBetAmount = (gamePlayer : GamePlayerDTO) => {
-  if (!gamePlayer.game_player_bet || !gamePlayer.game_player_bet.length) {
-    throw new Error('could not access player bets');
-  }
-  const initialBet = gamePlayer.game_player_bet.find((playerBet) => playerBet.type === 'initial');
-  if (!initialBet) {
-    throw new Error('could not get initial player bet');
-  }
-  const isDoubleDown = gamePlayer.game_player_round.some((gamePlayerRound) => gamePlayerRound.action === 'double down');
-  let betAmount = initialBet.amount;
-  if (isDoubleDown) {
-    betAmount += betAmount;
-  }
-  return betAmount;
-}

@@ -1,24 +1,32 @@
-import { ActionFunctionArgs, LoaderFunctionArgs, redirect } from '@remix-run/node';
-import { json, useLoaderData } from 'react-router';
+import { ActionFunctionArgs, LoaderFunctionArgs, json, redirect } from '@remix-run/node';
+import { useLoaderData } from '@remix-run/react';
 import GameLanding from 'components/GameLanding';
-import { GameData, GameDTO, getGameById, handlePlayerAction, placeInitialBet, startGame } from 'actions/game';
-import { GamePlayerDTO, getGamePlayerById } from 'actions/gamePlayer';
+import { GameDTO, getGameById, handlePlayerAction, placeInitialBet, startGame } from 'actions/game.server';
+import { GamePlayerDTO, getGamePlayerById } from 'actions/gamePlayer.server';
+import { requireSeat } from 'auth/guards.server';
+import { parseBlackjackState } from 'lib/gameState';
 
 export async function loader({
+  request,
   params,
 } : LoaderFunctionArgs) {
   if (!params.gamePlayerId) {
     throw new Error('no gamePlayerId specified');
   }
+  await requireSeat(request, params.gamePlayerId);
 
   const gamePlayer = await getGamePlayerById(params.gamePlayerId);
   const game = await getGameById(gamePlayer.game_id);
-  const gameData = game?.data as unknown as GameData;
-  gameData.deck = [];
-  if (!gameData.dealerCardsRevealed && gameData.dealerHand.length > 0) {
-    gameData.dealerHand[0].suit = 'hidden';
-    gameData.dealerHand[0].rank = 'hidden';
+  if (!game) {
+    throw new Error('game not found');
   }
+  const gameState = parseBlackjackState(game.data);
+  gameState.deck = [];
+  if (!gameState.dealerCardsRevealed && gameState.dealerHand.length > 0) {
+    gameState.dealerHand[0].suit = 'hidden';
+    gameState.dealerHand[0].rank = 'hidden';
+  }
+  game.data = gameState;
 
   return json({
     game,
@@ -30,6 +38,11 @@ export async function action({
   request,
   params,
 } : ActionFunctionArgs) {
+  if (!params.gamePlayerId) {
+    throw new Error('no gamePlayerId specified');
+  }
+  await requireSeat(request, params.gamePlayerId);
+
   const formData = await request.formData();
   const submitValue = formData.get('submit')?.toString() || '';
   let gamePlayerDTO = await getGamePlayerById(params.gamePlayerId || '');
@@ -59,7 +72,7 @@ type GameLandingRouteLoaderData = {
 };
 
 const GameLandingRoute = () => {
-  const loaderData = useLoaderData() as GameLandingRouteLoaderData;
+  const loaderData = useLoaderData() as unknown as GameLandingRouteLoaderData;
   return (
     <GameLanding game={loaderData.game} gamePlayer={loaderData.gamePlayer} />
   );

@@ -1,6 +1,6 @@
 import { Form } from '@remix-run/react';
-import { GameDTO } from 'actions/game';
-import { GamePlayerDTO } from 'actions/gamePlayer';
+import type { GameDTO } from 'actions/game.server';
+import type { GamePlayerDTO } from 'actions/gamePlayer.server';
 import gangsterAvatar from 'public/img/gangster_avatar.jpg';
 
 type SetWagerProps = {
