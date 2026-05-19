@@ -39,29 +39,33 @@ export default function PlayingCard({ card, small = false }: PlayingCardProps) {
   const color = SUIT_COLOR[card.suit] ?? 'text-slate-900';
   const rank = labelFor(card.rank);
 
+  // Box, padding, rank label and centre glyph are all sized as a set so
+  // the content sums under the box's interior height regardless of
+  // variant. Mixing a hard-coded glyph size with a variable box used to
+  // overflow the small card.
   const sizing = small
-    ? 'w-12 h-16 text-base'
-    : 'w-20 h-28 text-2xl';
+    ? { box: 'w-12 h-16 p-1', rank: 'text-xs', glyph: 'text-lg', backStar: 'text-xl' }
+    : { box: 'w-20 h-28 p-2', rank: 'text-2xl', glyph: 'text-3xl', backStar: 'text-3xl' };
 
   if (isHidden) {
     return (
       <div
-        className={`${sizing} rounded-lg border-2 border-slate-300 bg-gradient-to-br from-indigo-700 to-indigo-900 shadow-md flex items-center justify-center`}
+        className={`${sizing.box} rounded-lg border-2 border-slate-300 bg-gradient-to-br from-indigo-700 to-indigo-900 shadow-md flex items-center justify-center`}
         aria-label="hidden card"
       >
-        <span className="text-indigo-300 text-3xl">★</span>
+        <span className={`text-indigo-300 ${sizing.backStar}`}>★</span>
       </div>
     );
   }
 
   return (
     <div
-      className={`${sizing} rounded-lg border border-slate-300 bg-white shadow-md flex flex-col justify-between p-2 select-none`}
+      className={`${sizing.box} rounded-lg border border-slate-300 bg-white shadow-md flex flex-col justify-between select-none`}
       aria-label={`${rank} of ${card.suit}`}
     >
-      <span className={`${color} font-bold leading-none`}>{rank}</span>
-      <span className={`${color} text-center text-3xl leading-none`}>{glyph}</span>
-      <span className={`${color} font-bold leading-none self-end rotate-180`}>{rank}</span>
+      <span className={`${color} ${sizing.rank} font-bold leading-none`}>{rank}</span>
+      <span className={`${color} ${sizing.glyph} text-center leading-none`}>{glyph}</span>
+      <span className={`${color} ${sizing.rank} font-bold leading-none self-end rotate-180`}>{rank}</span>
     </div>
   );
 }
