@@ -1,1 +1,13 @@
 node_modules
+.git
+.cache
+build
+.env
+.env.*
+!.env.example
+*.md
+.github
+.vscode
+.idea
+coverage
+.DS_Store

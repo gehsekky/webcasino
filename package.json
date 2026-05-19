@@ -15,6 +15,7 @@
     "docker": "docker compose up --build --force-recreate --no-deps",
     "docker-clean": "docker compose down && docker compose rm -fv && docker volume rm web-casino_db",
     "lint": "eslint --ignore-path .gitignore --cache --cache-location ./node_modules/.cache/eslint .",
+    "postinstall": "prisma generate",
     "prisma-generate": "npx prisma generate",
     "start": "remix-serve ./build/server/index.js",
     "test": "vitest run",
