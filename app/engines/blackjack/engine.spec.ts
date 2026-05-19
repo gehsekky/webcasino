@@ -77,11 +77,13 @@ describe('blackjackEngine.applyAction(place_bet)', () => {
     ).toThrow(/positive integer/);
   });
 
-  it('accepts a valid bet and transitions to playing after all players bet', () => {
+  it('accepts a valid bet and deals cards immediately when all players bet', () => {
     const s = blackjackEngine.initialState(CONFIG, ['p1'], defaultRng);
     const next = blackjackEngine.applyAction(s, 'p1', { kind: 'place_bet', playerId: 'p1', amount: 10 }, defaultRng);
-    // Single player → bet → deal happens immediately → phase advances
-    expect(next.phase).toMatch(/playing|settled/);
+    // Single player → all bets in → engine deals immediately. Phase may be
+    // 'playing' (typical) or 'dealer' (player natural) or 'settled' (dealer
+    // natural). All non-betting phases are valid post-deal outcomes.
+    expect(next.phase).not.toBe('awaiting_bets');
     expect(next.players[0].bet).toBe(10);
     expect(next.players[0].cards).toHaveLength(2);
     expect(next.dealerHand).toHaveLength(2);

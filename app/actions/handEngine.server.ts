@@ -7,6 +7,7 @@ import { defaultRng } from 'engines/rng';
 import { BlackjackStateSchema, type BlackjackState } from 'lib/gameState';
 import type { BlackjackAction } from 'engines/blackjack/types';
 import { DEFAULT_MAXIMUM_BET, DEFAULT_MINIMUM_BET } from 'constants/index';
+import { appendHandEvent, HAND_INITIALIZED } from 'lib/handEvents';
 
 /**
  * Engine-backed action layer. All game-state transitions flow through
@@ -85,6 +86,14 @@ export async function createNewHand(params: {
       },
     });
 
+    // Bootstrap the event log with the initial state so the hand can be
+    // replayed deterministically from sequence 1.
+    await appendHandEvent(
+      handId,
+      { action: HAND_INITIALIZED, actorId: null, payload: { initialState } },
+      tx,
+    );
+
     return { handId, handSeatId, tableId: table.id, seatId: seat.id };
   });
 }
@@ -128,11 +137,24 @@ export async function submitAction(params: {
     // Apply the action.
     let nextState = blackjackEngine.applyAction(prevState, params.handSeatId, params.action, defaultRng);
 
+    // Record the player's action as an event in the same transaction.
+    await appendHandEvent(
+      handSeat.hand_id,
+      { action: params.action.kind, actorId: params.handSeatId, payload: params.action },
+      tx,
+    );
+
     // After a player action, if all seats are done acting the engine flips
     // to 'dealer'. Run the dealer turn in the same transaction so settle
     // also fires atomically with the player action.
     if (nextState.phase === 'dealer') {
-      nextState = blackjackEngine.applyAction(nextState, 'dealer', { kind: 'dealer_play' }, defaultRng);
+      const dealerAction: BlackjackAction = { kind: 'dealer_play' };
+      nextState = blackjackEngine.applyAction(nextState, 'dealer', dealerAction, defaultRng);
+      await appendHandEvent(
+        handSeat.hand_id,
+        { action: dealerAction.kind, actorId: null, payload: dealerAction },
+        tx,
+      );
     }
 
     // Money: reserve increases + terminal settlement.

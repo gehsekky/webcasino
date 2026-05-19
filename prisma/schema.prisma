@@ -84,8 +84,26 @@ model hand {
   casino_table casino_table @relation(fields: [table_id], references: [id], onDelete: Cascade)
   user         user         @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
   hand_seat    hand_seat[]
+  hand_event   hand_event[]
 
   @@index([table_id])
+}
+
+/// Append-only event log per hand. Source of truth for audit, replay,
+/// spectator subscriptions, and the real-time push transport. The latest
+/// state snapshot lives in `hand.data` (denormalized for fast reads);
+/// the events table is what could rebuild it.
+model hand_event {
+  hand_id    String   @db.Uuid
+  sequence   Int
+  actor_id   String?  @db.Uuid
+  action     String   @db.VarChar(64)
+  payload    Json     @db.Json
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  hand       hand     @relation(fields: [hand_id], references: [id], onDelete: Cascade)
+
+  @@id([hand_id, sequence])
+  @@index([hand_id])
 }
 
 model money_transaction {

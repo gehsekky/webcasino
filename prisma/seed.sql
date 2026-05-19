@@ -67,6 +67,18 @@ CREATE TABLE public.hand (
 
 CREATE INDEX idx_hand_table_id ON public.hand(table_id);
 
+CREATE TABLE public.hand_event (
+  hand_id UUID NOT NULL REFERENCES public.hand(id) ON DELETE CASCADE,
+  sequence integer NOT NULL,
+  actor_id UUID,
+  action varchar(64) NOT NULL,
+  payload json NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  PRIMARY KEY (hand_id, sequence)
+);
+
+CREATE INDEX idx_hand_event_hand_id ON public.hand_event(hand_id);
+
 CREATE TABLE public.hand_seat (
   id UUID NOT NULL DEFAULT uuid_generate_v4(),
   hand_id UUID NOT NULL REFERENCES public.hand(id) ON DELETE CASCADE,
