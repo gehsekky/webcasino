@@ -1,5 +1,6 @@
 import { useFetcher } from '@remix-run/react';
 import type { BlackjackAction } from 'engines/blackjack/types';
+import { buttonClass, type ButtonVariant } from 'lib/buttonStyle';
 
 type ActionBarProps = {
   /** Engine-supplied list of legal actions for this viewer. */
@@ -21,11 +22,11 @@ const ACTION_SUBMIT_VALUE: Partial<Record<BlackjackAction['kind'], string>> = {
   surrender: 'surrender',
 };
 
-const ACTION_STYLE: Partial<Record<BlackjackAction['kind'], string>> = {
-  hit: 'btn-success',
-  stay: 'btn-info',
-  double_down: 'btn-warning',
-  surrender: 'btn-error',
+const ACTION_VARIANT: Partial<Record<BlackjackAction['kind'], ButtonVariant>> = {
+  hit: 'success',
+  stay: 'info',
+  double_down: 'warning',
+  surrender: 'danger',
 };
 
 export default function ActionBar({ legalActions }: ActionBarProps) {
@@ -43,15 +44,11 @@ export default function ActionBar({ legalActions }: ActionBarProps) {
       {playable.map((action) => {
         const label = ACTION_LABEL[action.kind]!;
         const submitValue = ACTION_SUBMIT_VALUE[action.kind]!;
-        const style = ACTION_STYLE[action.kind] ?? 'btn-primary';
+        const variant = ACTION_VARIANT[action.kind] ?? 'primary';
         return (
           <fetcher.Form method="post" key={action.kind}>
             <input type="hidden" name="submit" value={submitValue} />
-            <button
-              type="submit"
-              disabled={submitting}
-              className={`btn ${style} font-bold uppercase tracking-wide`}
-            >
+            <button type="submit" disabled={submitting} className={buttonClass({ variant })}>
               {label}
             </button>
           </fetcher.Form>

@@ -1,4 +1,5 @@
 import { Form, Link } from '@remix-run/react';
+import { buttonClass } from 'lib/buttonStyle';
 
 type Viewer = {
   name: string;
@@ -32,10 +33,7 @@ export default function SiteHeader({ viewer }: SiteHeaderProps) {
               </p>
             </div>
             <Form method="post" action="/auth/logout">
-              <button
-                type="submit"
-                className="btn btn-sm btn-ghost text-emerald-200 hover:text-white"
-              >
+              <button type="submit" className={buttonClass({ variant: 'ghost', size: 'sm' })}>
                 Sign out
               </button>
             </Form>

@@ -1,18 +1,12 @@
-import {
-  redirect,
-  type ActionFunctionArgs,
-  type LoaderFunctionArgs,
-  type MetaFunction,
-} from '@remix-run/node';
+import { type LoaderFunctionArgs, type MetaFunction } from '@remix-run/node';
 import { useLoaderData } from '@remix-run/react';
-import { createNewHand } from 'actions/handEngine.server';
 import { prisma } from 'db.server';
-import { getOptionalUser, requireUser } from 'auth/guards.server';
+import { getOptionalUser } from 'auth/guards.server';
 import { providers } from 'auth/providers.server';
 import { BlackjackStateSchema } from 'lib/gameState';
 import SiteHeader from 'components/SiteHeader';
 import SignInPanel from 'components/SignInPanel';
-import LobbyPanel from 'components/LobbyPanel';
+import CasinoLobby from 'components/CasinoLobby';
 
 export const meta: MetaFunction = () => [
   { title: 'Web Casino' },
@@ -30,8 +24,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   const dbUser = await prisma.user.findUnique({ where: { id: user.id }, select: { money: true } });
 
-  // List the viewer's in-progress hand_seats (where the hand's BlackjackState
-  // is not in 'settled' phase).
   const candidates = await prisma.hand_seat.findMany({
     where: { user_id: user.id },
     include: { hand: { include: { casino_table: { select: { game_type: true } } } } },
@@ -62,21 +54,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
   };
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  const user = await requireUser(request);
-  const formData = await request.formData();
-  if (formData.get('submit') === 'create new') {
-    const gameType = formData.get('gameType')?.toString() ?? '';
-    if (!gameType) {
-      throw new Error('must provide gameType');
-    }
-    const dbUser = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
-    const { handSeatId } = await createNewHand({ user: dbUser, gameType });
-    return redirect(`/game/${handSeatId}`);
-  }
-  return null;
-}
-
 export default function Index() {
   const data = useLoaderData<typeof loader>();
 
@@ -92,7 +69,7 @@ export default function Index() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-emerald-950 via-emerald-900 to-emerald-950 text-white">
       <SiteHeader viewer={data.viewer} />
-      <LobbyPanel
+      <CasinoLobby
         viewerName={data.viewer.name}
         balance={data.viewer.balance}
         activeHands={data.activeHands}

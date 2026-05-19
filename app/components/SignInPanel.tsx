@@ -1,4 +1,5 @@
 import { Form } from '@remix-run/react';
+import { buttonClass } from 'lib/buttonStyle';
 
 type ProviderInfo = { id: string; label: string };
 
@@ -24,10 +25,7 @@ export default function SignInPanel({ providers }: SignInPanelProps) {
           <div className="flex flex-col gap-3">
             {providers.map((provider) => (
               <Form key={provider.id} method="post" action={`/auth/${provider.id}`}>
-                <button
-                  type="submit"
-                  className="btn btn-warning text-slate-900 font-bold uppercase tracking-wide w-full"
-                >
+                <button type="submit" className={buttonClass({ variant: 'primary', className: 'w-full' })}>
                   Sign in with {provider.label}
                 </button>
               </Form>

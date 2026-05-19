@@ -1,5 +1,6 @@
 import { Link } from '@remix-run/react';
 import type { PlayerSlot } from 'lib/gameState';
+import { buttonClass } from 'lib/buttonStyle';
 
 type OutcomeBannerProps = {
   viewerSlot: PlayerSlot;
@@ -51,10 +52,7 @@ export default function OutcomeBanner({ viewerSlot }: OutcomeBannerProps) {
     <div className={`rounded-xl px-6 py-5 ${config.tone} text-center shadow-lg`}>
       <p className="text-2xl font-bold uppercase tracking-wide">{config.title}</p>
       <p className="mt-1 text-lg font-semibold tabular-nums">{config.detail(viewerSlot)}</p>
-      <Link
-        to="/"
-        className="mt-4 inline-block btn btn-neutral text-white font-bold uppercase tracking-wide"
-      >
+      <Link to="/" className={buttonClass({ variant: 'neutral', className: 'mt-4' })}>
         New Hand
       </Link>
     </div>
