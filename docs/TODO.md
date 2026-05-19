@@ -28,7 +28,7 @@ Roughly ordered by ROI within each section.
 - [x] **Replace `as unknown as` casts with runtime validation.** `app/lib/gameState.ts` defines `BlackjackStateSchema`, `GamePlayerStateSchema`, and a `GameStateSchema` discriminated union; `parseBlackjackState()` / `parseGamePlayerState()` validate at every read site across `actions/`, `routes/`, and `components/`. `Card.suit` and `Card.rank` narrowed to enum types so structural compatibility holds. Schema specs added in `gameState.spec.ts`. Remaining `as unknown as` sites are limited to Prisma's `JsonObject` write typing and the remix-auth Strategy interface cast. *(Done — task #5.)*
 - [x] **Lift stringly-typed enums to TS string literal unions.** The blackjack engine (`app/engines/blackjack/`) now uses discriminated-union `BlackjackAction` (`'place_bet' | 'hit' | 'stay' | 'double_down' | 'surrender' | 'dealer_play' | 'deal_initial'`) and a tight `PlayerStatus` union. Money transaction type narrowed to `'debit' | 'credit'` in `recordMoneyTransaction`. The legacy `'indexOf(x) > -1'` checks in `actions/game.server.ts` / `gamePlayer.server.ts` will go away when those files are rewritten to delegate to the engine (planned with #9 / #10). *(Done — task #6.)*
 - [ ] **Reconcile schema source-of-truth.** `prisma/schema.prisma` and `prisma/seed.sql` both define tables and will drift. Pick one: run `prisma migrate dev` (and reduce `seed.sql` to inserts only), or stay SQL-first and stop using Prisma for schema sync.
-- [ ] **Make `updated_at` automatic.** `app/actions/gamePlayer.ts:78` `updateGamePlayer` doesn't bump `updated_at`. Switch to Prisma `@updatedAt` or DB triggers so it can't be forgotten.
+- [x] **Make `updated_at` automatic.** All six `updated_at` columns in `schema.prisma` now carry `@updatedAt`; the client maintains the timestamp on every UPDATE. The legacy `gamePlayer.ts:78` file no longer exists (engine refactor); the remaining manual `updated_at: new Date()` calls in `handEngine.server.ts` / `pokerEngine.server.ts` were dropped as redundant.
 - [ ] **Move deck out of the JSON blob (longer-term).** Every hit/stay rewrites the entire deck array in `game.data`. Consider deriving deck state from a seed + dealt-cards log, or a per-card table.
 - [ ] **Consider money in cents (longer-term).** `Math.floor(bet * 1.5)` already truncates on blackjack payouts; cents or `Decimal` would avoid this.
 
@@ -44,12 +44,12 @@ Roughly ordered by ROI within each section.
 ## Tooling & DX
 
 - [x] **Add tests.** Vitest + fast-check installed. Spec files for `app/lib/Card/index.ts` (`Card.spec.ts`) and `app/lib/Deck/index.ts` (`Deck.spec.ts`); 21 tests covering numeric/face/ace edge cases, deck completeness, and shuffle preservation. Test file convention: `*.spec.ts`. *(Done — task #1.)*
-- [ ] **Add CI.** A GitHub Actions workflow running `npm ci`, `typecheck`, `lint`, and (once they exist) tests on PR.
+- [x] **Add CI.** `.github/workflows/ci.yml` runs `npm ci`, `typecheck`, `lint`, and `test` on push to main and on PRs, using Node from `.nvmrc` (22.1.0). `concurrency.cancel-in-progress` so stacked pushes don't waste minutes.
 - [ ] **Add Prettier.** Inconsistencies like `(param : Type)` (space before colon) would resolve automatically; pairs well with `eslint-config-prettier`.
 - [ ] **Multi-stage Dockerfile.** Current image ships devDependencies; build in one stage, copy `build/` + `node_modules` (with `--omit=dev`) into a slimmer runtime stage.
 - [ ] **Move `prisma generate` out of `entrypoint.sh`** into the Dockerfile build step. Generating at container start delays cold boot and ties prod startup to Prisma's binary download path.
-- [ ] **Expand `.dockerignore`.** Currently only excludes `node_modules`; add `.git`, `.cache`, `build`, `.env`, `*.md`, `.github`.
-- [ ] **Remove `postcss.config.cjs` from `tsconfig.json` `include`** (`tsconfig.json:9`) — it's a CommonJS config file the toolchain reads directly.
+- [x] **Expand `.dockerignore`.** Now excludes `.git`, `.cache`, `build`, `.env(*)` (with an `.env.example` allowlist), `*.md`, `.github`, IDE dirs, and `coverage` in addition to `node_modules`.
+- [x] **Remove `postcss.config.cjs` from `tsconfig.json` `include`** — dropped; the toolchain reads it directly as CommonJS, the include entry was a no-op.
 - [ ] **Decide on Node version.** `.nvmrc` says `v22.1.0`, `Dockerfile` uses `node:22.1-alpine`, `package.json` engines says `>=18.0.0`. Align them (probably pin engines to `>=22`).
 
 ## Deferred — major-version migrations
