@@ -17,8 +17,10 @@ model user {
   money             Int                 @default(0)
   updated_at        DateTime            @default(now()) @db.Timestamptz(6)
   created_at        DateTime            @default(now()) @db.Timestamptz(6)
-  game              game[]
-  game_player       game_player[]
+  hand              hand[]
+  seat              seat[]
+  hand_seat         hand_seat[]
+  casino_table      casino_table[]
   money_transaction money_transaction[]
   oauth_identity    oauth_identity[]
 }
@@ -36,62 +38,112 @@ model oauth_identity {
   @@index([user_id])
 }
 
-model game {
-  id          String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  created_by  String        @db.Uuid
-  data        Json          @db.Json
-  updated_at  DateTime      @default(now()) @db.Timestamptz(6)
-  created_at  DateTime      @default(now()) @db.Timestamptz(6)
-  user        user          @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  game_player game_player[]
+/// A persistent room where one game type is played. Has bet limits and a
+/// fixed number of seats. Long-lived: many hands play out here over time.
+model casino_table {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  game_type   String   @db.VarChar(32)
+  minimum_bet Int
+  maximum_bet Int
+  max_seats   Int      @default(1)
+  created_by  String   @db.Uuid
+  updated_at  DateTime @default(now()) @db.Timestamptz(6)
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  user        user     @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  seat        seat[]
+  hand        hand[]
+}
+
+/// A user's persistent claim on a numbered position at a table. Survives
+/// across hands. When a user "stands up," the seat row is closed (modeled
+/// later as a soft-delete or end-of-life marker).
+model seat {
+  id           String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  table_id     String       @db.Uuid
+  user_id      String       @db.Uuid
+  position     Int
+  updated_at   DateTime     @default(now()) @db.Timestamptz(6)
+  created_at   DateTime     @default(now()) @db.Timestamptz(6)
+  casino_table casino_table @relation(fields: [table_id], references: [id], onDelete: Cascade)
+  user         user         @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  hand_seat    hand_seat[]
+
+  @@unique([table_id, position])
+  @@index([user_id])
+}
+
+/// One round of play at a table (was: `game`). Holds the engine state in
+/// `data` plus event-sourced history (planned in task #9).
+model hand {
+  id           String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  table_id     String       @db.Uuid
+  created_by   String       @db.Uuid
+  data         Json         @db.Json
+  updated_at   DateTime     @default(now()) @db.Timestamptz(6)
+  created_at   DateTime     @default(now()) @db.Timestamptz(6)
+  casino_table casino_table @relation(fields: [table_id], references: [id], onDelete: Cascade)
+  user         user         @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  hand_seat    hand_seat[]
+
+  @@index([table_id])
 }
 
 model money_transaction {
-  id              String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  user_id         String       @db.Uuid
-  game_player_id  String?      @db.Uuid
-  type            String       @db.VarChar(32)
+  id              String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id         String     @db.Uuid
+  hand_seat_id    String?    @db.Uuid
+  type            String     @db.VarChar(32)
   amount          Int
-  note            String?      @db.VarChar(512)
-  idempotency_key String?      @unique @db.VarChar(128)
-  updated_at      DateTime     @default(now()) @db.Timestamptz(6)
-  created_at      DateTime     @default(now()) @db.Timestamptz(6)
-  game_player     game_player? @relation(fields: [game_player_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  user            user         @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  note            String?    @db.VarChar(512)
+  idempotency_key String?    @unique @db.VarChar(128)
+  updated_at      DateTime   @default(now()) @db.Timestamptz(6)
+  created_at      DateTime   @default(now()) @db.Timestamptz(6)
+  hand_seat       hand_seat? @relation(fields: [hand_seat_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user            user       @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
-model game_player {
+/// A user's participation in one specific hand (was: `game_player`).
+/// `user_id` is denormalized from `seat.user_id` at creation time so the
+/// historical seat occupant survives later seat reassignment.
+model hand_seat {
   id                String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  game_id           String              @db.Uuid
+  hand_id           String              @db.Uuid
+  seat_id           String              @db.Uuid
   user_id           String              @db.Uuid
   data              Json                @db.Json
   updated_at        DateTime            @default(now()) @db.Timestamptz(6)
   created_at        DateTime            @default(now()) @db.Timestamptz(6)
-  game              game                @relation(fields: [game_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  hand              hand                @relation(fields: [hand_id], references: [id], onDelete: Cascade)
+  seat              seat                @relation(fields: [seat_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   user              user                @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  game_player_bet   game_player_bet[]
-  game_player_round game_player_round[]
+  hand_seat_bet     hand_seat_bet[]
+  hand_seat_round   hand_seat_round[]
   money_transaction money_transaction[]
+
+  @@unique([hand_id, seat_id])
+  @@index([user_id])
 }
 
-model game_player_round {
-  game_player_id String      @db.Uuid
-  round          Int
-  action         String      @db.VarChar(64)
-  updated_at     DateTime    @default(now()) @db.Timestamptz(6)
-  created_at     DateTime    @default(now()) @db.Timestamptz(6)
-  game_player    game_player @relation(fields: [game_player_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+model hand_seat_round {
+  hand_seat_id String    @db.Uuid
+  round        Int
+  action       String    @db.VarChar(64)
+  updated_at   DateTime  @default(now()) @db.Timestamptz(6)
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+  hand_seat    hand_seat @relation(fields: [hand_seat_id], references: [id], onDelete: Cascade)
 
-  @@id([game_player_id, round])
-  @@index([game_player_id], map: "idx_game_player_round_game_player_id")
+  @@id([hand_seat_id, round])
+  @@index([hand_seat_id], map: "idx_hand_seat_round_hand_seat_id")
 }
 
-model game_player_bet {
-  id             String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  game_player_id String      @db.Uuid
-  amount         Int
-  type           String      @db.VarChar(128)
-  updated_at     DateTime    @default(now()) @db.Timestamptz(6)
-  created_at     DateTime    @default(now()) @db.Timestamptz(6)
-  game_player    game_player @relation(fields: [game_player_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+model hand_seat_bet {
+  id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  hand_seat_id String    @db.Uuid
+  amount       Int
+  type         String    @db.VarChar(128)
+  updated_at   DateTime  @default(now()) @db.Timestamptz(6)
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+  hand_seat    hand_seat @relation(fields: [hand_seat_id], references: [id], onDelete: Cascade)
+
+  @@index([hand_seat_id])
 }

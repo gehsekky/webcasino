@@ -1,6 +1,6 @@
 import { redirect, type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction } from "@remix-run/node";
 import { useLoaderData } from "@remix-run/react";
-import { createNewGameAndGamePlayer } from "actions/game.server";
+import { createNewHand } from "actions/handEngine.server";
 import { prisma } from "db.server";
 import { getOptionalUser, requireUser } from "auth/guards.server";
 import { providers } from "auth/providers.server";
@@ -32,8 +32,8 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     const dbUser = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
-    const { gamePlayer } = await createNewGameAndGamePlayer(gameType, dbUser);
-    return redirect(`/game/${gamePlayer.id}`);
+    const { handSeatId } = await createNewHand({ user: dbUser, gameType });
+    return redirect(`/game/${handSeatId}`);
   }
 
   return null;

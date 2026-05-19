@@ -65,7 +65,7 @@ export const recordMoneyTransaction = async (
   return tx.money_transaction.create({
     data: {
       user_id: params.userId,
-      game_player_id: params.gamePlayerId ?? null,
+      hand_seat_id: params.gamePlayerId ?? null,
       type: params.type,
       amount: params.amount,
       note: params.note ?? null,

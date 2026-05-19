@@ -1,0 +1,335 @@
+import { randomUUID } from 'node:crypto';
+import type { Prisma, user } from '@prisma/client';
+import { prisma, type PrismaTransactionClient } from 'db.server';
+import { recordMoneyTransaction } from './moneyTransaction.server';
+import { blackjackEngine } from 'engines/blackjack/engine';
+import { defaultRng } from 'engines/rng';
+import { BlackjackStateSchema, type BlackjackState } from 'lib/gameState';
+import type { BlackjackAction } from 'engines/blackjack/types';
+import { DEFAULT_MAXIMUM_BET, DEFAULT_MINIMUM_BET } from 'constants/index';
+
+/**
+ * Engine-backed action layer. All game-state transitions flow through
+ * `blackjackEngine.applyAction`. Side effects (DB writes, money movements)
+ * are scheduled by this wrapper based on the engine's before/after state.
+ *
+ * Money model: bets are *reserved* (debited) at placement. On terminal
+ * settle, the engine emits a net delta; this wrapper credits the player
+ * `reserve + delta` (so win returns 2x bet, push returns 1x, lose returns 0).
+ */
+
+export type CreateHandResult = {
+  handId: string;
+  handSeatId: string;
+  tableId: string;
+  seatId: string;
+};
+
+export async function createNewHand(params: {
+  user: user;
+  gameType: string;
+  minimumBet?: number;
+  maximumBet?: number;
+}): Promise<CreateHandResult> {
+  if (params.gameType !== 'blackjack') {
+    throw new Error(`unsupported game type: ${params.gameType}`);
+  }
+  const minimumBet = params.minimumBet ?? DEFAULT_MINIMUM_BET;
+  const maximumBet = params.maximumBet ?? DEFAULT_MAXIMUM_BET;
+
+  return prisma.$transaction(async (tx) => {
+    const table = await tx.casino_table.create({
+      data: {
+        game_type: params.gameType,
+        minimum_bet: minimumBet,
+        maximum_bet: maximumBet,
+        max_seats: 1,
+        created_by: params.user.id,
+      },
+    });
+
+    const seat = await tx.seat.create({
+      data: {
+        table_id: table.id,
+        user_id: params.user.id,
+        position: 1,
+      },
+    });
+
+    // Pre-allocate UUIDs so the engine's player id == hand_seat.id.
+    const handId = randomUUID();
+    const handSeatId = randomUUID();
+
+    const initialState = blackjackEngine.initialState(
+      { minimumBet, maximumBet },
+      [handSeatId],
+      defaultRng,
+    );
+
+    await tx.hand.create({
+      data: {
+        id: handId,
+        table_id: table.id,
+        created_by: params.user.id,
+        data: initialState as unknown as Prisma.JsonObject,
+      },
+    });
+
+    await tx.hand_seat.create({
+      data: {
+        id: handSeatId,
+        hand_id: handId,
+        seat_id: seat.id,
+        user_id: params.user.id,
+        data: { cards: [] } as unknown as Prisma.JsonObject,
+      },
+    });
+
+    return { handId, handSeatId, tableId: table.id, seatId: seat.id };
+  });
+}
+
+/**
+ * Apply one action to a hand. The wrapper:
+ *  - loads the engine state from `hand.data`,
+ *  - enforces turn / legality via `engine.legalActions`,
+ *  - applies the action via `engine.applyAction`,
+ *  - auto-advances the dealer phase if the next state is `dealer`,
+ *  - schedules money movements (reserve on bet, settle on terminal),
+ *  - persists the new state and syncs `hand_seat.data.cards`,
+ *  - writes audit rows (`hand_seat_bet`, `hand_seat_round`) for current
+ *    components; the upcoming event log (task #9) will subsume these.
+ */
+export async function submitAction(params: {
+  handSeatId: string;
+  action: BlackjackAction;
+}): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const handSeat = await tx.hand_seat.findUnique({
+      where: { id: params.handSeatId },
+      include: { hand: true },
+    });
+    if (!handSeat) {
+      throw new Error('hand_seat not found');
+    }
+
+    const prevState: BlackjackState = BlackjackStateSchema.parse(handSeat.hand.data);
+
+    // Turn / legality enforcement. `place_bet` has variable amount so it's
+    // validated inside the engine (amount bounds + status check).
+    if (params.action.kind !== 'place_bet') {
+      const legal = blackjackEngine.legalActions(prevState, params.handSeatId);
+      const isLegal = legal.some((a) => a.kind === params.action.kind);
+      if (!isLegal) {
+        throw new Error(`action '${params.action.kind}' is not currently legal for this seat`);
+      }
+    }
+
+    // Apply the action.
+    let nextState = blackjackEngine.applyAction(prevState, params.handSeatId, params.action, defaultRng);
+
+    // After a player action, if all seats are done acting the engine flips
+    // to 'dealer'. Run the dealer turn in the same transaction so settle
+    // also fires atomically with the player action.
+    if (nextState.phase === 'dealer') {
+      nextState = blackjackEngine.applyAction(nextState, 'dealer', { kind: 'dealer_play' }, defaultRng);
+    }
+
+    // Money: reserve increases + terminal settlement.
+    await applyMoneyMoves(prevState, nextState, params.handSeatId, handSeat.user_id, tx);
+
+    // Persist new engine state.
+    await tx.hand.update({
+      where: { id: handSeat.hand_id },
+      data: { data: nextState as unknown as Prisma.JsonObject, updated_at: new Date() },
+    });
+
+    // Denormalize per-player cards for the current UI's read path.
+    for (const player of nextState.players) {
+      await tx.hand_seat.update({
+        where: { id: player.id },
+        data: { data: { cards: player.cards } as unknown as Prisma.JsonObject },
+      });
+    }
+
+    // Audit-trail compat (hand_seat_bet, hand_seat_round). Replaced by the
+    // event log in task #9.
+    await writeAuditTrail(prevState, nextState, params.handSeatId, params.action, tx);
+  });
+}
+
+async function applyMoneyMoves(
+  prev: BlackjackState,
+  next: BlackjackState,
+  actingHandSeatId: string,
+  actingUserId: string,
+  tx: PrismaTransactionClient,
+): Promise<void> {
+  // 1. Reserve any increase in the acting player's bet (place_bet → bet>0,
+  //    double_down → bet doubles). Atomic UPDATE rejects insufficient funds.
+  const prevPlayer = prev.players.find((p) => p.id === actingHandSeatId);
+  const nextPlayer = next.players.find((p) => p.id === actingHandSeatId);
+  const prevBet = prevPlayer?.bet ?? 0;
+  const nextBet = nextPlayer?.bet ?? 0;
+  if (nextBet > prevBet) {
+    const isFirstBet = prevBet === 0;
+    await recordMoneyTransaction(
+      {
+        userId: actingUserId,
+        type: 'debit',
+        amount: nextBet - prevBet,
+        gamePlayerId: actingHandSeatId,
+        note: isFirstBet ? 'reserve:place_bet' : 'reserve:double_down',
+      },
+      tx,
+    );
+  }
+
+  // 2. On terminal transition, credit each player `reserve + delta` so the
+  //    net flow matches the engine's intended payouts.
+  if (!blackjackEngine.isTerminal(prev) && blackjackEngine.isTerminal(next)) {
+    for (const order of blackjackEngine.settle(next)) {
+      const player = next.players.find((p) => p.id === order.playerId);
+      if (!player) continue;
+      const credit = player.bet + order.delta;
+      if (credit < 0) {
+        throw new Error(`unexpected negative settlement credit ${credit} for ${order.playerId}`);
+      }
+      if (credit === 0) continue;
+
+      const userId =
+        order.playerId === actingHandSeatId
+          ? actingUserId
+          : (
+              await tx.hand_seat.findUnique({
+                where: { id: order.playerId },
+                select: { user_id: true },
+              })
+            )?.user_id;
+      if (!userId) {
+        throw new Error(`could not resolve user for hand_seat ${order.playerId}`);
+      }
+
+      await recordMoneyTransaction(
+        {
+          userId,
+          type: 'credit',
+          amount: credit,
+          gamePlayerId: order.playerId,
+          note: `settle:${order.reason}`,
+        },
+        tx,
+      );
+    }
+  }
+}
+
+async function writeAuditTrail(
+  prev: BlackjackState,
+  next: BlackjackState,
+  handSeatId: string,
+  action: BlackjackAction,
+  tx: PrismaTransactionClient,
+): Promise<void> {
+  // place_bet → audit as a hand_seat_bet row of type 'initial'.
+  if (action.kind === 'place_bet') {
+    await tx.hand_seat_bet.create({
+      data: {
+        hand_seat_id: handSeatId,
+        amount: action.amount,
+        type: 'initial',
+      },
+    });
+  }
+
+  // Player actions → hand_seat_round row.
+  const auditAction = (() => {
+    switch (action.kind) {
+      case 'hit':
+        return 'hit';
+      case 'stay':
+        return 'stay';
+      case 'double_down':
+        return 'double down';
+      case 'surrender':
+        return 'surrender';
+      default:
+        return null;
+    }
+  })();
+  if (auditAction) {
+    const rounds = await tx.hand_seat_round.findMany({
+      where: { hand_seat_id: handSeatId },
+      orderBy: { round: 'desc' },
+      take: 1,
+    });
+    const next = (rounds[0]?.round ?? 0) + 1;
+    await tx.hand_seat_round.create({
+      data: { hand_seat_id: handSeatId, round: next, action: auditAction },
+    });
+  }
+
+  // Terminal transition → write final win/lose/push round per player.
+  if (!blackjackEngine.isTerminal(prev) && blackjackEngine.isTerminal(next)) {
+    for (const player of next.players) {
+      const finalAction = (() => {
+        switch (player.status) {
+          case 'won':
+          case 'blackjack':
+            return 'win';
+          case 'lost':
+          case 'busted':
+            return 'lose';
+          case 'pushed':
+            return 'push';
+          case 'surrendered':
+            return 'lose';
+          default:
+            return null;
+        }
+      })();
+      if (!finalAction) continue;
+
+      const rounds = await tx.hand_seat_round.findMany({
+        where: { hand_seat_id: player.id },
+        orderBy: { round: 'desc' },
+        take: 1,
+      });
+      const nextRound = (rounds[0]?.round ?? 0) + 1;
+      await tx.hand_seat_round.create({
+        data: { hand_seat_id: player.id, round: nextRound, action: finalAction },
+      });
+    }
+  }
+}
+
+/**
+ * Translate a form-submit value + handSeatId into a typed BlackjackAction.
+ * Throws on unknown / malformed input.
+ */
+export function parseBlackjackActionFromForm(
+  submitValue: string,
+  formData: FormData,
+  handSeatId: string,
+): BlackjackAction {
+  switch (submitValue) {
+    case 'place initial bet': {
+      const raw = formData.get('amount')?.toString() ?? '';
+      const amount = parseInt(raw, 10);
+      if (!Number.isInteger(amount)) {
+        throw new Error('invalid bet amount');
+      }
+      return { kind: 'place_bet', playerId: handSeatId, amount };
+    }
+    case 'hit':
+      return { kind: 'hit', playerId: handSeatId };
+    case 'stay':
+      return { kind: 'stay', playerId: handSeatId };
+    case 'double down':
+      return { kind: 'double_down', playerId: handSeatId };
+    case 'surrender':
+      return { kind: 'surrender', playerId: handSeatId };
+    default:
+      throw new Error(`unknown submit value: ${submitValue}`);
+  }
+}

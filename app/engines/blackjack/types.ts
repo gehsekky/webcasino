@@ -1,41 +1,6 @@
-import type { CardData } from 'lib/gameState';
+import type { CardData, BlackjackState, PlayerSlot, Phase, PlayerStatus } from 'lib/gameState';
 
-export type PlayerStatus =
-  | 'awaiting_bet'
-  | 'in_hand'
-  | 'stood'
-  | 'busted'
-  | 'surrendered'
-  | 'won'
-  | 'lost'
-  | 'pushed'
-  | 'blackjack';
-
-export type PlayerSlot = {
-  id: string;
-  cards: CardData[];
-  bet: number;
-  /** True if the player has doubled down on this hand. */
-  doubled: boolean;
-  status: PlayerStatus;
-};
-
-export type Phase = 'awaiting_bets' | 'playing' | 'dealer' | 'settled';
-
-export type BlackjackState = {
-  type: 'blackjack';
-  config: {
-    minimumBet: number;
-    maximumBet: number;
-  };
-  deck: CardData[];
-  dealerHand: CardData[];
-  dealerCardsRevealed: boolean;
-  players: PlayerSlot[];
-  phase: Phase;
-  /** Id of the player whose turn it is, or null. */
-  toAct: string | null;
-};
+export type { BlackjackState, PlayerSlot, Phase, PlayerStatus };
 
 export type BlackjackAction =
   | { kind: 'place_bet'; playerId: string; amount: number }
@@ -49,7 +14,6 @@ export type BlackjackAction =
 export type BlackjackConfig = {
   minimumBet: number;
   maximumBet: number;
-  playerIds: string[];
 };
 
 /**

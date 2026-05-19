@@ -38,7 +38,7 @@ Roughly ordered by ROI within each section.
 - [x] **Use `.server.ts` suffix for server-only modules.** All `app/actions/*.ts` renamed to `*.server.ts` via `git mv` so Vite reliably tree-shakes them out of the client bundle. Imports updated across `routes/`, `components/`, and internally within `actions/`. *(Done — task #4.)*
 - [ ] **Fix the import source in `routes/game.$gamePlayerId.tsx:2`.** `json` and `useLoaderData` should come from `@remix-run/react`, not `react-router`. Works today but isn't the documented surface. *(UI — deferred; will be handled by the frontend rewrite.)*
 - [ ] **Add `ErrorBoundary` exports** to routes (`_index.tsx`, `game.$gamePlayerId.tsx`) so loader/action errors render gracefully instead of crashing. *(UI — deferred.)*
-- [ ] **Reduce coupling between `game.ts` and `gamePlayer.ts`.** They import types and functions from each other. *(Will be resolved naturally by task #6 integration in task #10's schema decomp.)*
+- [x] **Reduce coupling between `game.ts` and `gamePlayer.ts`.** After engine integration (task #11), both files are reduced to read-only DTO type aliases + a single `findUnique` each. No cross-imports. All state transitions live in `actions/handEngine.server.ts`. *(Done — task #11.)*
 - [ ] **Replace `window.open` resume flow** in `app/components/CasinoLanding/index.tsx:13` with normal in-tab navigation. *(UI — deferred.)*
 
 ## Tooling & DX

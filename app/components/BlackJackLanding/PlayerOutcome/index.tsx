@@ -1,8 +1,8 @@
-import { game_player_round } from '@prisma/client';
+import { hand_seat_round } from '@prisma/client';
 import { Link } from '@remix-run/react';
 
 type PlayerOutcomeProps = {
-  gamePlayerRound : game_player_round;
+  gamePlayerRound : hand_seat_round;
 }
 
 const PlayerOutcome = ({ gamePlayerRound } : PlayerOutcomeProps) => {

@@ -15,13 +15,13 @@ type BlackJackLandingProps = {
 
 const BlackJackLanding = ({ game, gamePlayer } : BlackJackLandingProps) => {
   const gameData = parseBlackjackState(game.data);
-  const arePlayersDoneBetting = game.game_player.every((player) => player.game_player_bet.some((bet) => bet.type === 'initial'));
+  const arePlayersDoneBetting = game.hand_seat.every((player) => player.hand_seat_bet.some((bet) => bet.type === 'initial'));
   const hasGameStarted = gameData.dealerHand.length > 0;
-  const showActionBar = !gamePlayer.game_player_round.some((round) => ['stay', 'win', 'lose', 'push'].indexOf(round.action) > -1);
-  const isGameOver = gamePlayer.game_player_round.some((round) => ['win', 'lose', 'push'].indexOf(round.action) > -1);
-  const playerHighestRound = gamePlayer.game_player_round[Math.max(...gamePlayer.game_player_round.map((gamePlayerRound) => gamePlayerRound.round)) - 1];
+  const showActionBar = !gamePlayer.hand_seat_round.some((round) => ['stay', 'win', 'lose', 'push'].indexOf(round.action) > -1);
+  const isGameOver = gamePlayer.hand_seat_round.some((round) => ['win', 'lose', 'push'].indexOf(round.action) > -1);
+  const playerHighestRound = gamePlayer.hand_seat_round[Math.max(...gamePlayer.hand_seat_round.map((gamePlayerRound) => gamePlayerRound.round)) - 1];
 
-  if (!gamePlayer.game_player_bet || !gamePlayer.game_player_bet.length) {
+  if (!gamePlayer.hand_seat_bet || !gamePlayer.hand_seat_bet.length) {
     // if current player has not bet, show set wager screen
     return (
       <SetWager game={game} gamePlayer={gamePlayer} />
@@ -32,7 +32,7 @@ const BlackJackLanding = ({ game, gamePlayer } : BlackJackLandingProps) => {
       <>
         <div>players not done betting:</div>
         <ul>
-          {game.game_player.filter((gamePlayer) => !gamePlayer.game_player_bet.length).map((gamePlayer) => <li key={gamePlayer.id}>{gamePlayer.user.name}</li>)}
+          {game.hand_seat.filter((gamePlayer) => !gamePlayer.hand_seat_bet.length).map((gamePlayer) => <li key={gamePlayer.id}>{gamePlayer.user.name}</li>)}
         </ul>
       </>
     );
@@ -42,11 +42,11 @@ const BlackJackLanding = ({ game, gamePlayer } : BlackJackLandingProps) => {
       <>
         <div className="text-left">
           <p className="text-xl">game ID: {game.id}</p>
-          <p className="text-lg">number of players: {game.game_player.length}</p>
+          <p className="text-lg">number of players: {game.hand_seat.length}</p>
         </div>
         <div className="flex flex-row">
           {
-            game.game_player.map((player) => {
+            game.hand_seat.map((player) => {
               const playerData = parseGamePlayerState(player.data);
               const gamePlayerBet = getGamePlayerBetAmount(player);
 

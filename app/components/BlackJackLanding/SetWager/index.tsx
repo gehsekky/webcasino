@@ -12,7 +12,7 @@ const SetWager = ({ game, gamePlayer } : SetWagerProps) => {
   return (
     <div className="container flex-row">
       {
-        game.game_player.map((currGamePlayer) => {
+        game.hand_seat.map((currGamePlayer) => {
           if (currGamePlayer.id === gamePlayer.id) {
             return (
               <div key={currGamePlayer.id}>

@@ -1,8 +1,9 @@
 import { ActionFunctionArgs, LoaderFunctionArgs, json, redirect } from '@remix-run/node';
 import { useLoaderData } from '@remix-run/react';
 import GameLanding from 'components/GameLanding';
-import { GameDTO, getGameById, handlePlayerAction, placeInitialBet, startGame } from 'actions/game.server';
+import { GameDTO, getGameById } from 'actions/game.server';
 import { GamePlayerDTO, getGamePlayerById } from 'actions/gamePlayer.server';
+import { submitAction, parseBlackjackActionFromForm } from 'actions/handEngine.server';
 import { requireSeat } from 'auth/guards.server';
 import { parseBlackjackState } from 'lib/gameState';
 
@@ -16,7 +17,7 @@ export async function loader({
   await requireSeat(request, params.gamePlayerId);
 
   const gamePlayer = await getGamePlayerById(params.gamePlayerId);
-  const game = await getGameById(gamePlayer.game_id);
+  const game = await getGameById(gamePlayer.hand_id);
   if (!game) {
     throw new Error('game not found');
   }
@@ -45,23 +46,8 @@ export async function action({
 
   const formData = await request.formData();
   const submitValue = formData.get('submit')?.toString() || '';
-  let gamePlayerDTO = await getGamePlayerById(params.gamePlayerId || '');
-  // handle placing initial bet
-  if (submitValue === 'place initial bet') {
-    const amount = parseInt(formData.get('amount')?.toString() || '');
-    if (isNaN(amount)) {
-      throw new Error('could not parse bet amount');
-    }
-    await placeInitialBet(gamePlayerDTO, amount);
-    // refresh game after bet is made
-    gamePlayerDTO = await getGamePlayerById(gamePlayerDTO.id);
-    const gameDTO = await getGameById(gamePlayerDTO.game_id);
-    if (gameDTO?.game_player.every((gamePlayer) => gamePlayer.game_player_bet.some((playerBet) => playerBet.type === 'initial'))) {
-      await startGame(gameDTO);
-    }
-  } else if (['hit', 'stay', 'surrender', 'double down'].indexOf(submitValue) > -1) {
-    await handlePlayerAction(gamePlayerDTO, submitValue);
-  }
+  const action = parseBlackjackActionFromForm(submitValue, formData, params.gamePlayerId);
+  await submitAction({ handSeatId: params.gamePlayerId, action });
 
   return redirect(`/game/${params.gamePlayerId}`);
 }

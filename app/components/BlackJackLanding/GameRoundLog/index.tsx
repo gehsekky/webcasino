@@ -8,9 +8,9 @@ const GameRoundLog = ({ gamePlayer } : GameRoundLogProps) => {
   return (
     <div>
       {
-        gamePlayer.game_player_round.map((gamePlayerRound) => {
+        gamePlayer.hand_seat_round.map((gamePlayerRound) => {
           return (
-            <div key={`${gamePlayerRound.game_player_id}-${gamePlayerRound.round}`}>{gamePlayerRound.round} - {gamePlayerRound.action}</div>
+            <div key={`${gamePlayerRound.hand_seat_id}-${gamePlayerRound.round}`}>{gamePlayerRound.round} - {gamePlayerRound.action}</div>
           );
         })
       }

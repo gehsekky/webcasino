@@ -33,11 +33,13 @@ describe('CardSchema', () => {
 describe('BlackjackStateSchema', () => {
   const valid = {
     type: 'blackjack' as const,
-    minimumBet: 5,
-    maximumBet: 100,
+    config: { minimumBet: 5, maximumBet: 100 },
     deck: [{ suit: 'spades', rank: 'King' }],
     dealerHand: [],
     dealerCardsRevealed: false,
+    players: [],
+    phase: 'awaiting_bets' as const,
+    toAct: null,
   };
 
   it('accepts a well-formed state', () => {
@@ -49,16 +51,38 @@ describe('BlackjackStateSchema', () => {
   });
 
   it('rejects negative bet limits', () => {
-    expect(() => BlackjackStateSchema.parse({ ...valid, minimumBet: -1 })).toThrow();
+    expect(() => BlackjackStateSchema.parse({ ...valid, config: { minimumBet: -1, maximumBet: 100 } })).toThrow();
   });
 
   it('rejects non-integer bet limits', () => {
-    expect(() => BlackjackStateSchema.parse({ ...valid, minimumBet: 1.5 })).toThrow();
+    expect(() => BlackjackStateSchema.parse({ ...valid, config: { minimumBet: 1.5, maximumBet: 100 } })).toThrow();
   });
 
   it('rejects malformed card in deck', () => {
     expect(() =>
       BlackjackStateSchema.parse({ ...valid, deck: [{ suit: 'rainbow', rank: 'King' }] }),
+    ).toThrow();
+  });
+
+  it('rejects unknown phase', () => {
+    expect(() => BlackjackStateSchema.parse({ ...valid, phase: 'mystery' })).toThrow();
+  });
+
+  it('accepts a player slot with all required fields', () => {
+    expect(() =>
+      BlackjackStateSchema.parse({
+        ...valid,
+        players: [{ id: 'p1', cards: [], bet: 10, doubled: false, status: 'in_hand' }],
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects an unknown player status', () => {
+    expect(() =>
+      BlackjackStateSchema.parse({
+        ...valid,
+        players: [{ id: 'p1', cards: [], bet: 0, doubled: false, status: 'undecided' }],
+      }),
     ).toThrow();
   });
 
@@ -91,11 +115,13 @@ describe('GameStateSchema (discriminated union)', () => {
   it('narrows on the type literal', () => {
     const parsed = GameStateSchema.parse({
       type: 'blackjack',
-      minimumBet: 5,
-      maximumBet: 100,
+      config: { minimumBet: 5, maximumBet: 100 },
       deck: [],
       dealerHand: [],
       dealerCardsRevealed: false,
+      players: [],
+      phase: 'awaiting_bets',
+      toAct: null,
     });
     expect(parsed.type).toBe('blackjack');
   });

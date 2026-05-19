@@ -15,13 +15,43 @@ export const CardSchema = z.object({
 });
 export type CardData = z.infer<typeof CardSchema>;
 
+export const PlayerStatusSchema = z.enum([
+  'awaiting_bet',
+  'in_hand',
+  'stood',
+  'busted',
+  'surrendered',
+  'won',
+  'lost',
+  'pushed',
+  'blackjack',
+]);
+
+export const PhaseSchema = z.enum(['awaiting_bets', 'playing', 'dealer', 'settled']);
+
+export const PlayerSlotSchema = z.object({
+  id: z.string(),
+  cards: z.array(CardSchema),
+  bet: z.number().int().nonnegative(),
+  doubled: z.boolean(),
+  status: PlayerStatusSchema,
+});
+export type PlayerStatus = z.infer<typeof PlayerStatusSchema>;
+export type Phase = z.infer<typeof PhaseSchema>;
+export type PlayerSlot = z.infer<typeof PlayerSlotSchema>;
+
 export const BlackjackStateSchema = z.object({
   type: z.literal('blackjack'),
-  minimumBet: z.number().int().nonnegative(),
-  maximumBet: z.number().int().nonnegative(),
+  config: z.object({
+    minimumBet: z.number().int().nonnegative(),
+    maximumBet: z.number().int().nonnegative(),
+  }),
   deck: z.array(CardSchema),
   dealerHand: z.array(CardSchema),
   dealerCardsRevealed: z.boolean(),
+  players: z.array(PlayerSlotSchema),
+  phase: PhaseSchema,
+  toAct: z.string().nullable(),
 });
 export type BlackjackState = z.infer<typeof BlackjackStateSchema>;
 

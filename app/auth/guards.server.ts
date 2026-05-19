@@ -20,7 +20,7 @@ export async function requireSeat(
   gamePlayerId: string,
 ): Promise<SessionUser> {
   const user = await requireUser(request);
-  const seat = await prisma.game_player.findUnique({
+  const seat = await prisma.hand_seat.findUnique({
     where: { id: gamePlayerId },
     select: { user_id: true },
   });
