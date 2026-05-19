@@ -16,21 +16,15 @@ import type { BlackjackAction } from 'engines/blackjack/types';
 export const HAND_INITIALIZED = 'hand_initialized';
 
 /**
- * A new event to append. Discriminated union over the two shapes:
- *  - the bootstrap event (carries the initial state snapshot)
- *  - all subsequent engine actions (carry the BlackjackAction payload).
+ * A new event to append. The shape is intentionally engine-agnostic:
+ * `action` is a string label, `payload` is JSON-serializable. Each
+ * engine's wrapper attaches its own typed action payloads here.
  */
-export type HandEventInput =
-  | {
-      action: typeof HAND_INITIALIZED;
-      actorId: null;
-      payload: { initialState: BlackjackState };
-    }
-  | {
-      action: BlackjackAction['kind'];
-      actorId: string | null;
-      payload: BlackjackAction;
-    };
+export type HandEventInput = {
+  action: string;
+  actorId: string | null;
+  payload: unknown;
+};
 
 /** Shape of a row from the `hand_event` table for fold consumption. */
 export type StoredHandEvent = {

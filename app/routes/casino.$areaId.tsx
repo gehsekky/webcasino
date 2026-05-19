@@ -8,6 +8,7 @@ import { useLoaderData } from '@remix-run/react';
 import { prisma } from 'db.server';
 import { requireUser } from 'auth/guards.server';
 import { createNewHand } from 'actions/handEngine.server';
+import { createNewPokerHand } from 'actions/pokerEngine.server';
 import { findGameInArea, getAreaById, type CasinoArea } from 'lib/casinoAreas';
 import SiteHeader from 'components/SiteHeader';
 import AreaPanel from 'components/AreaPanel';
@@ -49,6 +50,21 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const dbUser = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
   if (dbUser.money < game.minimumBet) {
     throw new Response('balance too low for this table', { status: 400 });
+  }
+
+  if (game.id === 'poker') {
+    const { handSeatId } = await createNewPokerHand({
+      user: dbUser,
+      gameType: 'poker',
+      area: {
+        numSeats: 3,
+        ante: 1,
+        minBet: game.minimumBet,
+        minimumBuyIn: game.minimumBet * 20,
+        maximumBuyIn: game.maximumBet * 10,
+      },
+    });
+    return redirect(`/game/${handSeatId}`);
   }
 
   const { handSeatId } = await createNewHand({

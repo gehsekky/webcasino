@@ -2,35 +2,23 @@ import type { LoaderFunctionArgs } from '@remix-run/node';
 import { requireUser } from 'auth/guards.server';
 import { prisma } from 'db.server';
 import { blackjackEngine } from 'engines/blackjack/engine';
+import { fiveCardDrawEngine } from 'engines/poker/fiveCardDraw/engine';
 import { BlackjackStateSchema, type BlackjackState } from 'lib/gameState';
+import type { FiveCardDrawState } from 'engines/poker/fiveCardDraw/types';
 import { broadcastBus, type BroadcastedHandEvent } from 'lib/broadcastBus.server';
-import { getHandEvents } from 'lib/handEvents';
 
 /**
  * Server-Sent Events stream of state updates for one hand. Each subscriber
- * receives the current snapshot (filtered through `engine.viewFor`) and
- * then incremental updates as new events land in `hand_event`.
+ * receives the current snapshot (filtered through the appropriate
+ * engine's `viewFor`) and then incremental updates as new events land.
  *
  * URL: GET /hands/:handId/events
  *
- * Headers:
- *   Last-Event-ID (optional): resume from sequence N+1 instead of sending
- *     a fresh snapshot. Browsers' EventSource sets this automatically on
- *     reconnect.
+ * Dispatches by `casino_table.game_type` to the matching engine.
  *
- * Authorization: caller must hold a hand_seat on this hand. (Spectator
- *   support comes later when there's a frontend that can request it.)
- *
- * SSE event types:
- *   - `snapshot`: full BlackjackView for the viewer at the current state.
- *   - `state_update`: `{ sequence, action, actor, view }` after each
- *     engine event.
- *
- * Private info filtering: the BlackjackState that flows through the bus
- * still contains the full deck and every player's hole cards. Subscribers
- * project it through `engine.viewFor(state, viewerSeatId)` BEFORE
- * sending, which masks the deck and the dealer's hole card (and, for
- * future games, other players' hidden cards).
+ * Private info filtering: every broadcasted event carries the full
+ * server state; we project it per-viewer here before sending so the
+ * wire only carries what the viewer is allowed to see.
  */
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const user = await requireUser(request);
@@ -38,6 +26,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   if (!handId) {
     return new Response('handId required', { status: 400 });
   }
+
+  const hand = await prisma.hand.findUnique({
+    where: { id: handId },
+    include: { casino_table: { select: { game_type: true } } },
+  });
+  if (!hand) {
+    return new Response('hand not found', { status: 404 });
+  }
+  const gameType = hand.casino_table.game_type;
 
   // Authorization: caller must have a seat at this hand.
   const viewerSeat = await prisma.hand_seat.findFirst({
@@ -49,9 +46,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
   const viewerSeatId = viewerSeat.id;
 
-  const lastEventIdHeader = request.headers.get('Last-Event-ID');
-  const lastEventId = lastEventIdHeader ? parseInt(lastEventIdHeader, 10) : null;
-  const resumeFrom = Number.isFinite(lastEventId) ? Number(lastEventId) : null;
+  const projectView = (state: unknown): unknown => {
+    if (gameType === 'poker') {
+      const s = state as FiveCardDrawState;
+      return fiveCardDrawEngine.viewFor(s, viewerSeatId);
+    }
+    const s = state as BlackjackState;
+    return blackjackEngine.viewFor(s, viewerSeatId);
+  };
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -70,7 +72,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
           closed = true;
         }
       };
-
       const sendComment = (text: string) => {
         if (closed) return;
         try {
@@ -80,8 +81,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
         }
       };
 
-      // Subscribe BEFORE replaying / sending snapshot so live events that
-      // arrive during the initial fetch get queued, not dropped.
       const buffered: BroadcastedHandEvent[] = [];
       let initialized = false;
       const flushBuffered = () => {
@@ -89,7 +88,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
         buffered.length = 0;
       };
       const emitEvent = (ev: BroadcastedHandEvent) => {
-        const view = blackjackEngine.viewFor(ev.state_after, viewerSeatId);
+        const view = projectView(ev.state_after);
         send(
           'state_update',
           { sequence: ev.sequence, action: ev.action, actor: ev.actor_id, view },
@@ -104,35 +103,20 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
         emitEvent(ev);
       });
 
-      // Initial payload: either a snapshot or a replay of missed events.
+      // Initial snapshot from the current persisted state.
       try {
-        if (resumeFrom !== null) {
-          const missed = await getHandEvents(handId, resumeFrom, prisma);
-          for (const row of missed) {
-            // No state_after stored in DB. To rebuild it cheaply, just
-            // send the latest snapshot once at the end; per-event diffs
-            // for missed events would require running the fold here.
-            // For now, signal that a snapshot follows.
-            void row;
-          }
-          const hand = await prisma.hand.findUnique({ where: { id: handId } });
-          if (hand) {
-            const state = BlackjackStateSchema.parse(hand.data);
-            const view = blackjackEngine.viewFor(state, viewerSeatId);
-            send('snapshot', { view });
-          }
-        } else {
-          const hand = await prisma.hand.findUnique({ where: { id: handId } });
-          if (!hand) {
-            send('error', { message: 'hand not found' });
-            closed = true;
-            controller.close();
-            return;
-          }
-          const state: BlackjackState = BlackjackStateSchema.parse(hand.data);
-          const view = blackjackEngine.viewFor(state, viewerSeatId);
-          send('snapshot', { view });
+        const handRow = await prisma.hand.findUnique({ where: { id: handId } });
+        if (!handRow) {
+          send('error', { message: 'hand not found' });
+          closed = true;
+          controller.close();
+          return;
         }
+        const state =
+          gameType === 'poker'
+            ? (handRow.data as unknown as FiveCardDrawState)
+            : BlackjackStateSchema.parse(handRow.data);
+        send('snapshot', { view: projectView(state) });
       } catch (err) {
         send('error', { message: (err as Error).message });
         unsubscribe();
@@ -144,10 +128,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       initialized = true;
       flushBuffered();
 
-      // Keepalive comment every 15s so proxies don't reap the connection.
       const keepalive = setInterval(() => sendComment('keepalive'), 15_000);
 
-      // Cleanup on client disconnect.
       const onAbort = () => {
         if (closed) return;
         closed = true;
@@ -164,7 +146,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
       'Connection': 'keep-alive',
-      // Hint to disable proxy buffering (nginx default).
       'X-Accel-Buffering': 'no',
     },
   });
