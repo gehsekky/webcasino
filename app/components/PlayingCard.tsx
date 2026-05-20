@@ -44,8 +44,8 @@ export default function PlayingCard({ card, small = false }: PlayingCardProps) {
   // variant. Mixing a hard-coded glyph size with a variable box used to
   // overflow the small card.
   const sizing = small
-    ? { box: 'w-12 h-16 p-1', rank: 'text-xs', glyph: 'text-lg', backStar: 'text-xl' }
-    : { box: 'w-20 h-28 p-2', rank: 'text-2xl', glyph: 'text-3xl', backStar: 'text-3xl' };
+    ? { box: 'w-16 h-24 p-1.5', rank: 'text-sm', glyph: 'text-2xl', backStar: 'text-2xl' }
+    : { box: 'w-24 h-32 p-2', rank: 'text-2xl', glyph: 'text-4xl', backStar: 'text-4xl' };
 
   if (isHidden) {
     return (

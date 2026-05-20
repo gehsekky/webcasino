@@ -50,7 +50,7 @@ export default function PlayerSection({
   return (
     <section
       aria-labelledby={`player-${player.id}-heading`}
-      className={`rounded-xl p-4 sm:p-6 transition-shadow ${
+      className={`rounded-xl p-4 sm:p-6 transition-shadow min-w-[10rem] ${
         isToAct
           ? 'bg-emerald-800/60 ring-2 ring-yellow-400 shadow-lg shadow-yellow-500/20'
           : 'bg-emerald-900/40 ring-1 ring-emerald-700/40'
@@ -82,7 +82,10 @@ export default function PlayerSection({
           )}
         </div>
       </header>
-      <div className="flex flex-wrap gap-2 min-h-[7rem]">
+      {/* Card row does not wrap — section grows with the cards instead,
+          and the parent flex container wraps whole seats to a new row
+          when they outgrow the container's width. */}
+      <div className="flex gap-2 min-h-[8rem]">
         {player.cards.length === 0 ? (
           <p className="text-emerald-200/60 italic self-center">no cards yet</p>
         ) : (

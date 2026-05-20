@@ -40,7 +40,7 @@ export default function PokerHandView({
 
   return (
     <main className="container mx-auto px-4 sm:px-6 py-6 sm:py-10">
-      <div className="max-w-3xl mx-auto space-y-4">
+      <div className="max-w-4xl mx-auto space-y-4">
         <nav className="px-1">
           <Link
             to={area ? `/casino/${area.id}` : '/'}

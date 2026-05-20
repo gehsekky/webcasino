@@ -44,7 +44,7 @@ export default function HandView({
 
   return (
     <main className="container mx-auto px-4 sm:px-6 py-6 sm:py-10">
-      <div className="max-w-3xl mx-auto space-y-4">
+      <div className="max-w-4xl mx-auto space-y-4">
         <nav className="px-1">
           <Link
             to={area ? `/casino/${area.id}` : '/'}
@@ -58,9 +58,15 @@ export default function HandView({
           <ConnectionStatus status={status} />
         </div>
 
-        <DealerSection cards={view.dealerHand} revealed={view.dealerCardsRevealed} />
+        <div className="flex justify-center">
+          <DealerSection cards={view.dealerHand} revealed={view.dealerCardsRevealed} />
+        </div>
 
-        <div className="space-y-3">
+        {/* Players seated around the table. Each PlayerSection sizes to
+            its own card row; justify-between keeps them spread across
+            the parent. Sections wrap to a new row once their combined
+            width exceeds the container. */}
+        <div className="flex flex-wrap justify-between gap-3">
           {view.players.map((player) => {
             const ownedIdx = viewerSlots.findIndex((s) => s.id === player.id);
             const isViewer = ownedIdx !== -1;
