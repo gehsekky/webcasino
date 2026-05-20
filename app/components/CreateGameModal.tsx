@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useFetcher } from '@remix-run/react';
+import { AuthenticityTokenInput } from 'remix-utils/csrf/react';
 import { buttonClass } from 'lib/buttonStyle';
 
 type CreateGameModalProps = {
@@ -19,9 +20,14 @@ const STAKES_BOUNDS: Record<Exclude<StakesPreset, 'custom'>, { min: number; max:
  * controls visibility via `open`. Submits as a Remix fetcher form so the
  * page redirects to the new room on success.
  */
+const ROOM_NAME_MAX_LENGTH = 128;
+
 export default function CreateGameModal({ open, onClose }: CreateGameModalProps) {
   const fetcher = useFetcher();
-  const [gameType, setGameType] = useState<'blackjack' | 'poker'>('blackjack');
+  const [name, setName] = useState('');
+  const [gameType, setGameType] = useState<'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette'>(
+    'blackjack',
+  );
   const [numSeats, setNumSeats] = useState(3);
   const [stakes, setStakes] = useState<StakesPreset>('low');
   const [customMin, setCustomMin] = useState(1);
@@ -30,9 +36,18 @@ export default function CreateGameModal({ open, onClose }: CreateGameModalProps)
   if (!open) return null;
 
   const submitting = fetcher.state !== 'idle';
-  const minSeats = gameType === 'poker' ? 2 : 1;
-  const maxSeats = gameType === 'poker' ? 9 : 7;
+  // Per-game seat ranges. Must mirror tableLifecycle.server.GAME_SEAT_RANGES.
+  const SEAT_RANGE = {
+    blackjack: { min: 1, max: 7 },
+    poker: { min: 2, max: 9 },
+    holdem: { min: 2, max: 9 },
+    slots: { min: 1, max: 1 },
+    roulette: { min: 1, max: 8 },
+  } as const;
+  const minSeats = SEAT_RANGE[gameType].min;
+  const maxSeats = SEAT_RANGE[gameType].max;
   const effectiveSeats = Math.min(Math.max(numSeats, minSeats), maxSeats);
+  const nameValid = name.trim().length > 0 && name.length <= ROOM_NAME_MAX_LENGTH;
 
   return (
     // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
@@ -60,7 +75,31 @@ export default function CreateGameModal({ open, onClose }: CreateGameModalProps)
             it (_index), which Remix encodes as /?index. An explicit
             action="/" would target the root layout instead and 405. */}
         <fetcher.Form method="post" className="space-y-4">
+          <AuthenticityTokenInput />
           <input type="hidden" name="intent" value="create_room" />
+
+          <div>
+            <label
+              htmlFor="create-name"
+              className="block text-xs uppercase tracking-wider text-emerald-200/80 mb-1"
+            >
+              Name <span className="text-red-300">*</span>
+            </label>
+            <input
+              id="create-name"
+              name="name"
+              type="text"
+              required
+              maxLength={ROOM_NAME_MAX_LENGTH}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Friday Night Poker"
+              className="w-full rounded bg-emerald-950 text-white border border-emerald-700 px-3 py-2"
+            />
+            <p className="mt-1 text-xs text-emerald-200/60">
+              Visible to anyone you invite. Must be unique among rooms you&apos;ve created.
+            </p>
+          </div>
 
           <div>
             <label
@@ -73,11 +112,18 @@ export default function CreateGameModal({ open, onClose }: CreateGameModalProps)
               id="create-game-type"
               name="gameType"
               value={gameType}
-              onChange={(e) => setGameType(e.target.value as 'blackjack' | 'poker')}
+              onChange={(e) =>
+                setGameType(
+                  e.target.value as 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette',
+                )
+              }
               className="w-full rounded bg-emerald-950 text-white border border-emerald-700 px-3 py-2"
             >
               <option value="blackjack">Blackjack</option>
               <option value="poker">5-Card Draw</option>
+              <option value="holdem">Texas Hold&apos;em</option>
+              <option value="slots">Slots</option>
+              <option value="roulette">Roulette</option>
             </select>
           </div>
 
@@ -99,7 +145,8 @@ export default function CreateGameModal({ open, onClose }: CreateGameModalProps)
               className="w-full rounded bg-emerald-950 text-white border border-emerald-700 px-3 py-2 tabular-nums"
             />
             <p className="mt-1 text-xs text-emerald-200/60">
-              {gameType === 'poker' ? '2–9 seats' : '1–7 seats'}. Empty seats are filled by AI bots.
+              {minSeats === maxSeats ? `${minSeats} seat` : `${minSeats}–${maxSeats} seats`}. Empty
+              seats are filled by AI bots.
             </p>
           </div>
 
@@ -190,10 +237,11 @@ export default function CreateGameModal({ open, onClose }: CreateGameModalProps)
             </button>
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || !nameValid}
               className={buttonClass({ variant: 'primary' })}
+              title={!nameValid ? 'Enter a room name first' : undefined}
             >
-              {submitting ? 'Creating…' : 'Create'}
+              {submitting ? 'Creating…' : !nameValid ? 'Enter a name' : 'Create'}
             </button>
           </div>
         </fetcher.Form>

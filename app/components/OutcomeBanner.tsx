@@ -1,12 +1,20 @@
 import { Form, Link } from '@remix-run/react';
+import { AuthenticityTokenInput } from 'remix-utils/csrf/react';
 import type { PlayerSlot } from 'lib/gameState';
 import { buttonClass } from 'lib/buttonStyle';
+import GameSwitcher from './GameSwitcher';
 
 type OutcomeBannerProps = {
   /** One slot per hand owned by the viewer (more than one after a split). Empty for spectators. */
   viewerSlots: PlayerSlot[];
-  /** Room this hand was at. "New Hand" posts back here to start the next one. */
+  /** Room this hand was at. "Start Next Hand" posts back here to start the next one. */
   roomId: string;
+  /** Only the room creator can advance to the next hand. */
+  isRoomCreator: boolean;
+  /** Current game at the room — feeds the between-hands switcher. */
+  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette';
+  /** Room's seat count — gates the switcher's available options. */
+  roomMaxSeats: number;
 };
 
 type Outcome = { title: string; net: number; reason: string };
@@ -41,16 +49,27 @@ function netLabel(net: number): string {
   return net > 0 ? `+$${net}` : `-$${Math.abs(net)}`;
 }
 
-export default function OutcomeBanner({ viewerSlots, roomId }: OutcomeBannerProps) {
+export default function OutcomeBanner({
+  viewerSlots,
+  roomId,
+  isRoomCreator,
+  roomGameType,
+  roomMaxSeats,
+}: OutcomeBannerProps) {
   const outcomes = viewerSlots
     .map((slot) => ({ slot, outcome: computeOutcome(slot) }))
     .filter((x): x is { slot: PlayerSlot; outcome: Outcome } => x.outcome !== null);
 
-  // Spectator (or anomalous empty outcomes): show a neutral banner with
-  // just the "next hand" affordance — they didn't have a stake.
+  // Spectator (or anomalous empty outcomes): neutral banner — they didn't have a stake.
   if (outcomes.length === 0) {
     return (
-      <BannerShell tone="bg-slate-700 text-white" roomId={roomId}>
+      <BannerShell
+        tone="bg-slate-700 text-white"
+        roomId={roomId}
+        isRoomCreator={isRoomCreator}
+        roomGameType={roomGameType}
+        roomMaxSeats={roomMaxSeats}
+      >
         <p className="text-lg font-semibold uppercase tracking-wide">Hand over</p>
       </BannerShell>
     );
@@ -61,7 +80,13 @@ export default function OutcomeBanner({ viewerSlots, roomId }: OutcomeBannerProp
   if (outcomes.length === 1) {
     const only = outcomes[0];
     return (
-      <BannerShell tone={toneFor(only.outcome.net)} roomId={roomId}>
+      <BannerShell
+        tone={toneFor(only.outcome.net)}
+        roomId={roomId}
+        isRoomCreator={isRoomCreator}
+        roomGameType={roomGameType}
+        roomMaxSeats={roomMaxSeats}
+      >
         <p className="text-2xl font-bold uppercase tracking-wide">{only.outcome.title}</p>
         <p className="mt-1 text-lg font-semibold tabular-nums">{netLabel(only.outcome.net)}</p>
       </BannerShell>
@@ -69,7 +94,13 @@ export default function OutcomeBanner({ viewerSlots, roomId }: OutcomeBannerProp
   }
 
   return (
-    <BannerShell tone={toneFor(totalNet)} roomId={roomId}>
+    <BannerShell
+      tone={toneFor(totalNet)}
+      roomId={roomId}
+      isRoomCreator={isRoomCreator}
+      roomGameType={roomGameType}
+      roomMaxSeats={roomMaxSeats}
+    >
       <p className="text-xs uppercase tracking-[0.2em] font-semibold opacity-80">Hand results</p>
       <ul className="mt-2 space-y-1 text-sm">
         {outcomes.map(({ slot, outcome }, i) => (
@@ -91,22 +122,41 @@ export default function OutcomeBanner({ viewerSlots, roomId }: OutcomeBannerProp
 function BannerShell({
   tone,
   roomId,
+  isRoomCreator,
+  roomGameType,
+  roomMaxSeats,
   children,
 }: {
   tone: string;
   roomId: string;
+  isRoomCreator: boolean;
+  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette';
+  roomMaxSeats: number;
   children: React.ReactNode;
 }) {
   return (
     <div className={`rounded-xl px-6 py-5 ${tone} text-center shadow-lg`}>
       {children}
-      <div className="mt-4 flex justify-center gap-3">
-        <Form method="post" action={`/rooms/${roomId}`} className="inline-block">
-          <input type="hidden" name="intent" value="start_hand" />
-          <button type="submit" className={buttonClass({ variant: 'neutral' })}>
-            New Hand
-          </button>
-        </Form>
+      <div className="mt-4 flex flex-col items-center gap-3">
+        <GameSwitcher
+          roomId={roomId}
+          currentGame={roomGameType}
+          maxSeats={roomMaxSeats}
+          isRoomCreator={isRoomCreator}
+        />
+        {isRoomCreator ? (
+          <Form method="post" action={`/rooms/${roomId}`} className="inline-block">
+            <AuthenticityTokenInput />
+            <input type="hidden" name="intent" value="start_hand" />
+            <button type="submit" className={buttonClass({ variant: 'primary' })}>
+              Start Next Hand
+            </button>
+          </Form>
+        ) : (
+          <p className="text-sm italic opacity-80">
+            waiting for the room creator to start the next hand…
+          </p>
+        )}
         <Link to="/" className={buttonClass({ variant: 'neutral' })}>
           Landing
         </Link>

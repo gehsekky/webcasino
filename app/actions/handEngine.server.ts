@@ -152,10 +152,12 @@ export async function submitAction(params: {
     const prevState: BlackjackState = BlackjackStateSchema.parse(handSeat.hand.data);
 
     // Build a slotId → user map covering every hand_seat row at the
-    // table (primary slots only — split siblings resolve via parentSlotId).
+    // table. Split siblings have synthetic ids (`${parentId}:split:N`)
+    // that aren't valid UUIDs and have no hand_seat row, so they're
+    // excluded here — `ownerOf` falls back to `parentSlotId` for them.
     const userMap = await buildUserMap(
       tx,
-      prevState.players.map((p) => p.id),
+      prevState.players.filter((p) => p.parentSlotId == null).map((p) => p.id),
     );
 
     // After a split, the viewer owns multiple slots; per-turn actions

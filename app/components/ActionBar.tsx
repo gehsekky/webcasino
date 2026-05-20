@@ -1,4 +1,5 @@
 import { useFetcher } from '@remix-run/react';
+import { AuthenticityTokenInput } from 'remix-utils/csrf/react';
 import type { BlackjackAction } from 'engines/blackjack/types';
 import { buttonClass, type ButtonVariant } from 'lib/buttonStyle';
 
@@ -50,6 +51,7 @@ export default function ActionBar({ legalActions }: ActionBarProps) {
         const variant = ACTION_VARIANT[action.kind] ?? 'primary';
         return (
           <fetcher.Form method="post" key={action.kind}>
+            <AuthenticityTokenInput />
             <input type="hidden" name="submit" value={submitValue} />
             <button type="submit" disabled={submitting} className={buttonClass({ variant })}>
               {label}

@@ -1,16 +1,31 @@
 import { Form, Link } from '@remix-run/react';
+import { AuthenticityTokenInput } from 'remix-utils/csrf/react';
 import type { FiveCardDrawView } from 'engines/poker/fiveCardDraw/types';
 import { CATEGORY_LABEL } from 'engines/poker/shared/types';
 import { buttonClass } from 'lib/buttonStyle';
+import GameSwitcher from './GameSwitcher';
 
 type PokerOutcomeBannerProps = {
   view: FiveCardDrawView;
   handSeatId: string;
-  /** Room this hand was at. "New Hand" posts back here to start the next one. */
+  /** Room this hand was at. "Start Next Hand" posts back here to start the next one. */
   roomId: string;
+  /** Only the room creator can advance to the next hand. */
+  isRoomCreator: boolean;
+  /** Current game at the room — feeds the between-hands switcher. */
+  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette';
+  /** Room's seat count — gates the switcher's available options. */
+  roomMaxSeats: number;
 };
 
-export default function PokerOutcomeBanner({ view, handSeatId, roomId }: PokerOutcomeBannerProps) {
+export default function PokerOutcomeBanner({
+  view,
+  handSeatId,
+  roomId,
+  isRoomCreator,
+  roomGameType,
+  roomMaxSeats,
+}: PokerOutcomeBannerProps) {
   if (view.phase !== 'settled') return null;
 
   const viewer = view.players.find((p) => p.id === handSeatId);
@@ -49,13 +64,26 @@ export default function PokerOutcomeBanner({ view, handSeatId, roomId }: PokerOu
         ))}
       </div>
 
-      <div className="mt-4 flex justify-center gap-3">
-        <Form method="post" action={`/rooms/${roomId}`} className="inline-block">
-          <input type="hidden" name="intent" value="start_hand" />
-          <button type="submit" className={buttonClass({ variant: 'neutral' })}>
-            New Hand
-          </button>
-        </Form>
+      <div className="mt-4 flex flex-col items-center gap-3">
+        <GameSwitcher
+          roomId={roomId}
+          currentGame={roomGameType}
+          maxSeats={roomMaxSeats}
+          isRoomCreator={isRoomCreator}
+        />
+        {isRoomCreator ? (
+          <Form method="post" action={`/rooms/${roomId}`} className="inline-block">
+            <AuthenticityTokenInput />
+            <input type="hidden" name="intent" value="start_hand" />
+            <button type="submit" className={buttonClass({ variant: 'primary' })}>
+              Start Next Hand
+            </button>
+          </Form>
+        ) : (
+          <p className="text-sm italic opacity-80">
+            waiting for the room creator to start the next hand…
+          </p>
+        )}
         <Link to="/" className={buttonClass({ variant: 'neutral' })}>
           Landing
         </Link>

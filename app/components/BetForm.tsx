@@ -1,5 +1,6 @@
 import { useFetcher } from '@remix-run/react';
 import { useEffect, useState } from 'react';
+import { AuthenticityTokenInput } from 'remix-utils/csrf/react';
 import { buttonClass } from 'lib/buttonStyle';
 
 const LAST_BET_STORAGE_KEY = 'webcasino:lastBet';
@@ -47,6 +48,7 @@ export default function BetForm({ minimumBet, maximumBet, balance, defaultAmount
 
   return (
     <fetcher.Form method="post" className="space-y-2" onSubmit={handleSubmit}>
+      <AuthenticityTokenInput />
       <input type="hidden" name="submit" value="place initial bet" />
       <label
         htmlFor="bet-amount"

@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { Form, Link } from '@remix-run/react';
+import { AuthenticityTokenInput } from 'remix-utils/csrf/react';
 import { buttonClass } from 'lib/buttonStyle';
+import GameSwitcher from './GameSwitcher';
 
 type RoomSummary = {
   id: string;
+  name: string;
   gameType: string;
   minimumBet: number;
   maximumBet: number;
@@ -24,29 +27,25 @@ type RoomSeatRow = {
 type RoomLobbyProps = {
   room: RoomSummary;
   seats: RoomSeatRow[];
-  /** True if the most recent hand has settled (vs. no hands played yet). */
-  lastHandSettled: boolean;
 };
 
 /**
- * Lobby view for a room — shown when no hand is in progress. Lists the
- * current roster (humans only; AI fills are ephemeral and don't show up
- * here), exposes the shareable join link, and gives the creator a Start
- * Hand button.
+ * Lobby view for a brand-new room with no hand yet. Once any hand exists
+ * (active or settled) the room view shows the hand surface instead — the
+ * settled outcome banner serves as the between-rounds resting state.
  */
-export default function RoomLobby({ room, seats, lastHandSettled }: RoomLobbyProps) {
-  const joinUrl =
-    typeof window !== 'undefined' && room.joinToken
-      ? `${window.location.origin}/join/${room.joinToken}`
-      : room.joinToken
-        ? `/join/${room.joinToken}`
-        : null;
+export default function RoomLobby({ room, seats }: RoomLobbyProps) {
+  // Render the relative path on both SSR and client to keep the input value
+  // hydration-stable. The absolute URL is only computed at copy time, when
+  // we're guaranteed to be on the client.
+  const joinPath = room.joinToken ? `/join/${room.joinToken}` : null;
   const [copied, setCopied] = useState(false);
 
   const copyLink = async () => {
-    if (!joinUrl) return;
+    if (!joinPath) return;
+    const absolute = new URL(joinPath, window.location.origin).href;
     try {
-      await navigator.clipboard.writeText(joinUrl);
+      await navigator.clipboard.writeText(absolute);
       setCopied(true);
       setTimeout(() => setCopied(false), 2_000);
     } catch {
@@ -58,8 +57,8 @@ export default function RoomLobby({ room, seats, lastHandSettled }: RoomLobbyPro
   const allPositions = Array.from({ length: room.maxSeats }, (_, i) => i + 1);
 
   return (
-    <main className="container mx-auto px-4 sm:px-6 py-6 sm:py-10">
-      <div className="max-w-3xl mx-auto space-y-6">
+    <main>
+      <div className="space-y-6">
         <nav className="px-1">
           <Link
             to="/"
@@ -69,13 +68,16 @@ export default function RoomLobby({ room, seats, lastHandSettled }: RoomLobbyPro
           </Link>
         </nav>
 
-        <header className="space-y-1">
-          <h1 className="text-2xl font-bold text-white capitalize">
-            {room.gameType === 'poker' ? '5-Card Draw' : room.gameType}
-          </h1>
+        <header className="space-y-2">
           <p className="text-sm text-emerald-200/80 tabular-nums">
             Stakes ${room.minimumBet}–${room.maximumBet} · {room.maxSeats} seats
           </p>
+          <GameSwitcher
+            roomId={room.id}
+            currentGame={room.gameType as 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette'}
+            maxSeats={room.maxSeats}
+            isRoomCreator={room.isCreator}
+          />
         </header>
 
         {/* Roster: shows persistent humans only. Empty positions are filled
@@ -124,7 +126,7 @@ export default function RoomLobby({ room, seats, lastHandSettled }: RoomLobbyPro
 
         {/* Shareable join link. Copy-to-clipboard with a fallback to a
             visible text field. */}
-        {joinUrl && (
+        {joinPath && (
           <section
             aria-labelledby="invite-heading"
             className="rounded-xl bg-emerald-900/40 ring-1 ring-emerald-700/40 p-4 sm:p-6"
@@ -138,7 +140,7 @@ export default function RoomLobby({ room, seats, lastHandSettled }: RoomLobbyPro
             <div className="flex gap-2">
               <input
                 readOnly
-                value={joinUrl}
+                value={joinPath}
                 onFocus={(e) => e.currentTarget.select()}
                 className="flex-1 rounded bg-emerald-950 border border-emerald-700 px-3 py-2 text-sm text-white font-mono"
                 aria-label="Join URL"
@@ -161,12 +163,13 @@ export default function RoomLobby({ room, seats, lastHandSettled }: RoomLobbyPro
         {/* Start Hand: only the creator can kick off a hand for now. */}
         {room.isCreator && (
           <Form method="post" action={`/rooms/${room.id}`}>
+            <AuthenticityTokenInput />
             <input type="hidden" name="intent" value="start_hand" />
             <button
               type="submit"
               className={buttonClass({ variant: 'primary', className: 'w-full' })}
             >
-              {lastHandSettled ? 'Start Next Hand' : 'Start Hand'}
+              Start Hand
             </button>
           </Form>
         )}

@@ -1,5 +1,6 @@
 import { useFetcher } from '@remix-run/react';
 import { useState } from 'react';
+import { AuthenticityTokenInput } from 'remix-utils/csrf/react';
 import { buttonClass } from 'lib/buttonStyle';
 
 type InsuranceFormProps = {
@@ -27,6 +28,7 @@ export default function InsuranceForm({ originalBet, balance }: InsuranceFormPro
       </div>
 
       <fetcher.Form method="post" className="flex flex-col sm:flex-row sm:items-stretch gap-2">
+        <AuthenticityTokenInput />
         <input type="hidden" name="submit" value="take insurance" />
         <div className="flex flex-1 items-stretch rounded-lg overflow-hidden ring-1 ring-amber-700/60 focus-within:ring-2 focus-within:ring-amber-400 bg-amber-950">
           <span aria-hidden="true" className="flex items-center px-3 text-amber-200 font-bold">
@@ -56,6 +58,7 @@ export default function InsuranceForm({ originalBet, balance }: InsuranceFormPro
       </fetcher.Form>
 
       <fetcher.Form method="post">
+        <AuthenticityTokenInput />
         <input type="hidden" name="submit" value="decline insurance" />
         <button
           type="submit"

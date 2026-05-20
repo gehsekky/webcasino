@@ -1,4 +1,5 @@
 import { Form } from '@remix-run/react';
+import { AuthenticityTokenInput } from 'remix-utils/csrf/react';
 import { buttonClass } from 'lib/buttonStyle';
 
 type ProviderInfo = { id: string; label: string };
@@ -25,6 +26,7 @@ export default function SignInPanel({ providers }: SignInPanelProps) {
           <div className="flex flex-col gap-3">
             {providers.map((provider) => (
               <Form key={provider.id} method="post" action={`/auth/${provider.id}`}>
+                <AuthenticityTokenInput />
                 <button
                   type="submit"
                   className={buttonClass({ variant: 'primary', className: 'w-full' })}

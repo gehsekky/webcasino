@@ -3,6 +3,9 @@ import { prisma } from 'db.server';
 import { getAvailableAIUsers } from 'auth/aiUsers.server';
 import { startBlackjackHand, type BlackjackRoomConfig } from './handEngine.server';
 import { startPokerHand, type PokerRoomConfig } from './pokerEngine.server';
+import { startHoldemHand, type HoldemRoomConfig } from './holdemEngine.server';
+import { startSlotsHand, type SlotsRoomConfig } from './slotsEngine.server';
+import { startRouletteHand, type RouletteRoomConfig } from './rouletteEngine.server';
 
 /**
  * Room (a.k.a. casino_table) lifecycle: create, accept invites, list,
@@ -14,7 +17,19 @@ import { startPokerHand, type PokerRoomConfig } from './pokerEngine.server';
  * a "game" or "room"; in code we use "room" as the consistent noun.
  */
 
-export type RoomGameType = 'blackjack' | 'poker';
+export type RoomGameType = 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette';
+
+export const ROOM_NAME_MAX_LENGTH = 128;
+
+/** Per-game seat-count constraints. `min` is what the engine requires to
+ *  actually start a hand. `max` is the UI cap; the DB doesn't enforce one. */
+export const GAME_SEAT_RANGES: Record<RoomGameType, { min: number; max: number }> = {
+  blackjack: { min: 1, max: 7 },
+  poker: { min: 2, max: 9 },
+  holdem: { min: 2, max: 9 },
+  slots: { min: 1, max: 1 },
+  roulette: { min: 1, max: 8 },
+};
 
 /**
  * Minimal user shape — just the id. Lets callers pass either the
@@ -24,10 +39,11 @@ export type ActingUser = { id: string };
 
 export type CreateRoomParams = {
   creator: ActingUser;
+  name: string;
   gameType: RoomGameType;
   minimumBet: number;
   maximumBet: number;
-  /** Total seats (humans + AI fills). Must be ≥ 1 for blackjack, ≥ 2 for poker. */
+  /** Total seats (humans + AI fills). Must satisfy GAME_SEAT_RANGES for the game. */
   numSeats: number;
 };
 
@@ -43,17 +59,36 @@ export type CreateRoomResult = {
  * No hand is started — that's an explicit `startHand` from the room view.
  */
 export async function createRoom(params: CreateRoomParams): Promise<CreateRoomResult> {
-  if (params.gameType !== 'blackjack' && params.gameType !== 'poker') {
+  if (!(params.gameType in GAME_SEAT_RANGES)) {
     throw new Error(`createRoom: unsupported game type '${params.gameType}'`);
   }
-  if (params.gameType === 'poker' && params.numSeats < 2) {
-    throw new Error('createRoom: poker needs at least 2 seats');
+  const trimmedName = params.name.trim();
+  if (trimmedName.length === 0) {
+    throw new Response('room name is required', { status: 400 });
   }
-  if (params.numSeats < 1) {
-    throw new Error('createRoom: numSeats must be ≥ 1');
+  if (trimmedName.length > ROOM_NAME_MAX_LENGTH) {
+    throw new Response(`room name exceeds ${ROOM_NAME_MAX_LENGTH} characters`, { status: 400 });
+  }
+  const range = GAME_SEAT_RANGES[params.gameType];
+  if (params.numSeats < range.min || params.numSeats > range.max) {
+    throw new Response(
+      `numSeats must be between ${range.min} and ${range.max} for ${params.gameType}`,
+      { status: 400 },
+    );
   }
   if (params.minimumBet < 1 || params.maximumBet < params.minimumBet) {
-    throw new Error('createRoom: invalid bet bounds');
+    throw new Response('invalid bet bounds', { status: 400 });
+  }
+
+  // Per-creator uniqueness on name. The DB unique index is the hard
+  // enforcer; this check lets us return a friendly 409 instead of a
+  // Prisma constraint error.
+  const dupe = await prisma.casino_table.findFirst({
+    where: { created_by: params.creator.id, name: trimmedName },
+    select: { id: true },
+  });
+  if (dupe) {
+    throw new Response('you already have a room with that name', { status: 409 });
   }
 
   const joinToken = generateJoinToken();
@@ -61,6 +96,7 @@ export async function createRoom(params: CreateRoomParams): Promise<CreateRoomRe
   return prisma.$transaction(async (tx) => {
     const room = await tx.casino_table.create({
       data: {
+        name: trimmedName,
         game_type: params.gameType,
         minimum_bet: params.minimumBet,
         maximum_bet: params.maximumBet,
@@ -84,6 +120,56 @@ export async function createRoom(params: CreateRoomParams): Promise<CreateRoomRe
       creatorSeatId: seat.id,
     };
   });
+}
+
+/**
+ * Change the game type at a room. Allowed only for the creator, only when
+ * no hand is in progress, and only when the room's seat count is
+ * compatible with the new game's constraints. The new game's first hand
+ * starts on the next `startHand` call.
+ */
+export async function switchRoomGame(params: {
+  roomId: string;
+  newGameType: RoomGameType;
+  by: ActingUser;
+}): Promise<{ changed: boolean }> {
+  if (!(params.newGameType in GAME_SEAT_RANGES)) {
+    throw new Response(`unsupported game type '${params.newGameType}'`, { status: 400 });
+  }
+
+  const room = await prisma.casino_table.findUnique({
+    where: { id: params.roomId },
+    include: { hand: { orderBy: { created_at: 'desc' }, take: 1 } },
+  });
+  if (!room) {
+    throw new Response('room not found', { status: 404 });
+  }
+  if (room.created_by !== params.by.id) {
+    throw new Response('only the room creator can switch games', { status: 403 });
+  }
+  if (room.game_type === params.newGameType) {
+    return { changed: false };
+  }
+
+  const latest = room.hand[0];
+  const latestPhase = (latest?.data as { phase?: string } | undefined)?.phase;
+  if (latest && latestPhase !== 'settled') {
+    throw new Response('cannot switch games while a hand is in progress', { status: 409 });
+  }
+
+  const range = GAME_SEAT_RANGES[params.newGameType];
+  if (room.max_seats < range.min || room.max_seats > range.max) {
+    throw new Response(
+      `room has ${room.max_seats} seats; ${params.newGameType} requires ${range.min}–${range.max}`,
+      { status: 409 },
+    );
+  }
+
+  await prisma.casino_table.update({
+    where: { id: params.roomId },
+    data: { game_type: params.newGameType },
+  });
+  return { changed: true };
 }
 
 /**
@@ -236,6 +322,7 @@ export async function declineInvitation(params: {
 
 export type UserRoomSummary = {
   id: string;
+  name: string;
   gameType: string;
   minimumBet: number;
   maximumBet: number;
@@ -275,6 +362,7 @@ export async function listUserRooms(userId: string): Promise<UserRoomSummary[]> 
     const hasActiveHand = latestHand != null && latestHand.phase !== 'settled';
     return {
       id: t.id,
+      name: t.name,
       gameType: t.game_type,
       minimumBet: t.minimum_bet,
       maximumBet: t.maximum_bet,
@@ -290,6 +378,7 @@ export async function listUserRooms(userId: string): Promise<UserRoomSummary[]> 
 export type UserInvitationSummary = {
   id: string;
   roomId: string;
+  roomName: string;
   gameType: string;
   minimumBet: number;
   maximumBet: number;
@@ -305,6 +394,7 @@ export async function listUserInvitations(userId: string): Promise<UserInvitatio
       casino_table: {
         select: {
           id: true,
+          name: true,
           game_type: true,
           minimum_bet: true,
           maximum_bet: true,
@@ -317,6 +407,7 @@ export async function listUserInvitations(userId: string): Promise<UserInvitatio
   return invites.map((i) => ({
     id: i.id,
     roomId: i.casino_table.id,
+    roomName: i.casino_table.name,
     gameType: i.casino_table.game_type,
     minimumBet: i.casino_table.minimum_bet,
     maximumBet: i.casino_table.maximum_bet,
@@ -421,6 +512,49 @@ export async function startHand(params: {
       maximumBuyIn: room.maximum_bet * 10,
     };
     return startPokerHand({
+      roomId: room.id,
+      participants,
+      config,
+      creatorId: params.startedBy.id,
+    });
+  }
+
+  if (room.game_type === 'holdem') {
+    // Small blind = floor(min/2), big blind = minimum_bet. Buy-in cap is
+    // generous (10× max bet) so chip stacks don't run out fast.
+    const config: HoldemRoomConfig = {
+      smallBlind: Math.max(1, Math.floor(room.minimum_bet / 2)),
+      bigBlind: room.minimum_bet,
+      minimumBuyIn: room.minimum_bet * 20,
+      maximumBuyIn: room.maximum_bet * 10,
+    };
+    return startHoldemHand({
+      roomId: room.id,
+      participants,
+      config,
+      creatorId: params.startedBy.id,
+    });
+  }
+
+  if (room.game_type === 'slots') {
+    const config: SlotsRoomConfig = {
+      minimumBet: room.minimum_bet,
+      maximumBet: room.maximum_bet,
+    };
+    return startSlotsHand({
+      roomId: room.id,
+      participants,
+      config,
+      creatorId: params.startedBy.id,
+    });
+  }
+
+  if (room.game_type === 'roulette') {
+    const config: RouletteRoomConfig = {
+      minimumBet: room.minimum_bet,
+      maximumBet: room.maximum_bet,
+    };
+    return startRouletteHand({
       roomId: room.id,
       participants,
       config,

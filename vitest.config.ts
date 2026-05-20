@@ -5,7 +5,9 @@ export default defineConfig({
   plugins: [tsconfigPaths()],
   test: {
     include: ['**/*.spec.{ts,tsx}'],
-    exclude: ['node_modules', 'build', '.cache'],
+    // Playwright specs live under e2e/ and import from @playwright/test;
+    // they're run by `npm run e2e`, not vitest.
+    exclude: ['node_modules', 'build', '.cache', 'e2e'],
     environment: 'node',
     coverage: {
       provider: 'v8',

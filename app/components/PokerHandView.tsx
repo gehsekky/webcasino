@@ -9,10 +9,18 @@ import ConnectionStatus from './ConnectionStatus';
 type PokerHandViewProps = {
   /** Room this hand belongs to. Used for SSE subscription + back link. */
   roomId: string;
+  /** Only the room creator can start the next hand. */
+  isRoomCreator: boolean;
+  /** Room's current game type — for the between-hands game switcher. */
+  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette';
+  /** Room's seat count — gates which games can be switched to. */
+  roomMaxSeats: number;
   /** Null when the viewer joined mid-hand and is spectating until the next round. */
   handSeatId: string | null;
   initialView: FiveCardDrawView;
   viewerName: string;
+  /** hand_seat.id → {name, isAi} for each seat in this hand. */
+  participants: Record<string, { name: string; isAi: boolean }>;
 };
 
 const PHASE_LABEL: Record<FiveCardDrawView['phase'], string> = {
@@ -26,19 +34,21 @@ const PHASE_LABEL: Record<FiveCardDrawView['phase'], string> = {
 
 export default function PokerHandView({
   roomId,
+  isRoomCreator,
+  roomGameType,
+  roomMaxSeats,
   handSeatId,
   initialView,
   viewerName,
+  participants,
 }: PokerHandViewProps) {
   const { view, status } = usePokerView(roomId, initialView);
 
-  const viewerSlot = handSeatId ? view.players.find((p) => p.id === handSeatId) : undefined;
-  const opponents = view.players.filter((p) => p.id !== handSeatId);
   const isSpectator = handSeatId === null;
 
   return (
-    <main className="container mx-auto px-4 sm:px-6 py-6 sm:py-10">
-      <div className="max-w-4xl mx-auto space-y-4">
+    <main>
+      <div className="space-y-4">
         <nav className="px-1">
           <Link
             to="/"
@@ -58,27 +68,25 @@ export default function PokerHandView({
           <ConnectionStatus status={status} />
         </div>
 
-        {/* Opponents first; viewer slot rendered prominently below. */}
-        <div className="grid gap-3 sm:grid-cols-2">
-          {opponents.map((p) => (
-            <PokerSeat
-              key={p.id}
-              player={p}
-              isViewer={false}
-              isToAct={view.toAct === p.id}
-              label={p.id.slice(0, 12)}
-            />
-          ))}
+        {/* All seats in one vertical column — same shape as blackjack. */}
+        <div className="flex flex-col gap-3">
+          {view.players.map((p) => {
+            const isViewer = p.id === handSeatId;
+            const owner = participants[p.id];
+            const ownerName = isViewer ? viewerName : (owner?.name ?? p.id.slice(0, 8));
+            const ownerIsAi = owner?.isAi ?? false;
+            return (
+              <PokerSeat
+                key={p.id}
+                player={p}
+                isViewer={isViewer}
+                isToAct={view.toAct === p.id}
+                ownerName={ownerName}
+                ownerIsAi={ownerIsAi}
+              />
+            );
+          })}
         </div>
-
-        {viewerSlot && (
-          <PokerSeat
-            player={viewerSlot}
-            isViewer
-            isToAct={view.toAct === viewerSlot.id}
-            label={viewerName}
-          />
-        )}
 
         <div className="pt-2">
           {isSpectator && view.phase !== 'settled' && (
@@ -87,19 +95,34 @@ export default function PokerHandView({
             </p>
           )}
           {handSeatId && <PokerActionArea view={view} handSeatId={handSeatId} />}
-          {handSeatId && <PokerOutcomeBanner view={view} handSeatId={handSeatId} roomId={roomId} />}
-          {isSpectator && view.phase === 'settled' && <SpectatorPostHand roomId={roomId} />}
+          {handSeatId && (
+            <PokerOutcomeBanner
+              view={view}
+              handSeatId={handSeatId}
+              roomId={roomId}
+              isRoomCreator={isRoomCreator}
+              roomGameType={roomGameType}
+              roomMaxSeats={roomMaxSeats}
+            />
+          )}
+          {isSpectator && view.phase === 'settled' && (
+            <SpectatorPostHand roomId={roomId} isRoomCreator={isRoomCreator} />
+          )}
         </div>
       </div>
     </main>
   );
 }
 
-function SpectatorPostHand({ roomId }: { roomId: string }) {
+function SpectatorPostHand({ roomId, isRoomCreator }: { roomId: string; isRoomCreator: boolean }) {
   return (
     <div className="rounded-xl bg-slate-800 text-white px-6 py-5 text-center shadow-lg">
       <p className="text-lg font-semibold uppercase tracking-wide">Hand over</p>
-      <p className="mt-2 text-sm opacity-80">you will join the next hand started at this room</p>
+      <p className="mt-2 text-sm opacity-80">
+        {isRoomCreator
+          ? 'start the next hand from the outcome banner above'
+          : 'waiting for the room creator to start the next hand…'}
+      </p>
       <Link
         to={`/rooms/${roomId}`}
         className="mt-4 inline-block underline text-emerald-200 hover:text-white"

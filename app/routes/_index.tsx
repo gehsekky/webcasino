@@ -7,8 +7,10 @@ import {
   redirect,
 } from '@remix-run/node';
 import { Form, Link, useLoaderData } from '@remix-run/react';
+import { AuthenticityTokenInput } from 'remix-utils/csrf/react';
 import { prisma } from 'db.server';
 import { getOptionalUser, requireUser } from 'auth/guards.server';
+import { csrf, CSRFError } from 'auth/csrf.server';
 import { providers } from 'auth/providers.server';
 import {
   createRoom,
@@ -64,15 +66,29 @@ export async function loader({ request }: LoaderFunctionArgs) {
 export async function action({ request }: ActionFunctionArgs) {
   const user = await requireUser(request);
   const formData = await request.formData();
+  try {
+    await csrf.validate(formData, request.headers);
+  } catch (e) {
+    if (e instanceof CSRFError) throw new Response('invalid CSRF token', { status: 403 });
+    throw e;
+  }
   const intent = formData.get('intent')?.toString() ?? '';
 
   if (intent === 'create_room') {
+    const name = formData.get('name')?.toString() ?? '';
     const gameType = formData.get('gameType')?.toString();
     const numSeats = parseInt(formData.get('numSeats')?.toString() ?? '', 10);
     const minBet = parseInt(formData.get('minBet')?.toString() ?? '', 10);
     const maxBet = parseInt(formData.get('maxBet')?.toString() ?? '', 10);
 
-    if (gameType !== 'blackjack' && gameType !== 'poker') {
+    const ALLOWED_GAME_TYPES: RoomGameType[] = [
+      'blackjack',
+      'poker',
+      'holdem',
+      'slots',
+      'roulette',
+    ];
+    if (!ALLOWED_GAME_TYPES.includes(gameType as RoomGameType)) {
       throw new Response('invalid game type', { status: 400 });
     }
     if (!Number.isFinite(numSeats) || !Number.isFinite(minBet) || !Number.isFinite(maxBet)) {
@@ -81,6 +97,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
     const result = await createRoom({
       creator: user,
+      name,
       gameType: gameType as RoomGameType,
       numSeats,
       minimumBet: minBet,
@@ -154,15 +171,15 @@ export default function Index() {
                     className="flex items-center justify-between gap-3 rounded-xl bg-emerald-900/50 ring-1 ring-emerald-700/40 p-4"
                   >
                     <div>
-                      <p className="font-semibold text-white capitalize">
-                        {inv.gameType === 'poker' ? '5-Card Draw' : inv.gameType}
-                      </p>
-                      <p className="text-xs text-emerald-200/70 tabular-nums">
-                        ${inv.minimumBet}–${inv.maximumBet} · {inv.maxSeats} seats
+                      <p className="font-semibold text-white">{inv.roomName}</p>
+                      <p className="text-xs text-emerald-200/70 tabular-nums capitalize">
+                        {inv.gameType === 'poker' ? '5-Card Draw' : inv.gameType} · $
+                        {inv.minimumBet}–${inv.maximumBet} · {inv.maxSeats} seats
                       </p>
                     </div>
                     <div className="flex gap-2">
                       <Form method="post" className="inline-block">
+                        <AuthenticityTokenInput />
                         <input type="hidden" name="intent" value="accept_invitation" />
                         <input type="hidden" name="invitationId" value={inv.id} />
                         <button type="submit" className={buttonClass({ variant: 'primary' })}>
@@ -170,6 +187,7 @@ export default function Index() {
                         </button>
                       </Form>
                       <Form method="post" className="inline-block">
+                        <AuthenticityTokenInput />
                         <input type="hidden" name="intent" value="decline_invitation" />
                         <input type="hidden" name="invitationId" value={inv.id} />
                         <button type="submit" className={buttonClass({ variant: 'neutral' })}>
@@ -202,16 +220,17 @@ export default function Index() {
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <p className="font-semibold text-white capitalize">
-                            {room.gameType === 'poker' ? '5-Card Draw' : room.gameType}
+                          <p className="font-semibold text-white">
+                            {room.name}
                             {room.isCreator && (
                               <span className="ml-2 text-xs uppercase tracking-wide text-yellow-300">
                                 creator
                               </span>
                             )}
                           </p>
-                          <p className="text-xs text-emerald-200/70 tabular-nums">
-                            ${room.minimumBet}–${room.maximumBet} · {room.seatedCount}/
+                          <p className="text-xs text-emerald-200/70 tabular-nums capitalize">
+                            {room.gameType === 'poker' ? '5-Card Draw' : room.gameType} · $
+                            {room.minimumBet}–${room.maximumBet} · {room.seatedCount}/
                             {room.maxSeats} seated
                           </p>
                         </div>

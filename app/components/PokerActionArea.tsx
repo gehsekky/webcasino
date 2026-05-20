@@ -1,5 +1,6 @@
 import { useFetcher } from '@remix-run/react';
 import { useState } from 'react';
+import { AuthenticityTokenInput } from 'remix-utils/csrf/react';
 import { buttonClass } from 'lib/buttonStyle';
 import type { FiveCardDrawView } from 'engines/poker/fiveCardDraw/types';
 
@@ -58,6 +59,8 @@ function BetActionBar({
   const [raiseTo, setRaiseTo] = useState<number>(minRaiseTarget);
 
   const legalKinds = new Set(view.legalActions.map((a) => a.kind));
+  const hasCardAction = legalKinds.has('fold') || legalKinds.has('check') || legalKinds.has('call');
+  const hasBettingAction = legalKinds.has('bet') || legalKinds.has('raise');
 
   return (
     <div className="rounded-xl bg-emerald-900/40 ring-1 ring-emerald-700/40 p-4 space-y-3">
@@ -73,7 +76,11 @@ function BetActionBar({
         )}
       </div>
 
-      <div className="flex flex-wrap gap-2 justify-center">
+      {/* Single horizontal bar of every legal betting action. Each action
+          submits its own form (separate submit values), but they live
+          side-by-side in one flex row. flex-wrap keeps it usable when the
+          viewport can't hold the whole bar. */}
+      <div className="flex flex-wrap items-stretch justify-center gap-2">
         {legalKinds.has('fold') && (
           <SingleButton
             submitValue="fold"
@@ -101,53 +108,59 @@ function BetActionBar({
             fetcher={fetcher}
           />
         )}
+
+        {hasCardAction && hasBettingAction && (
+          <span aria-hidden="true" className="self-stretch w-px bg-emerald-700/60 mx-1" />
+        )}
+
+        {legalKinds.has('bet') && (
+          <fetcher.Form method="post" className="flex items-stretch gap-1">
+            <AuthenticityTokenInput />
+            <input type="hidden" name="submit" value="bet" />
+            <input
+              type="number"
+              name="amount"
+              min={minBet}
+              step={1}
+              value={betAmount}
+              onChange={(e) => setBetAmount(parseInt(e.target.value, 10) || minBet)}
+              className="w-20 bg-emerald-950 text-white px-2 py-2 rounded-lg ring-1 ring-emerald-700 tabular-nums"
+              aria-label="Bet amount"
+            />
+            <button
+              type="submit"
+              disabled={submitting || betAmount < minBet}
+              className={buttonClass({ variant: 'warning' })}
+            >
+              Bet
+            </button>
+          </fetcher.Form>
+        )}
+
+        {legalKinds.has('raise') && (
+          <fetcher.Form method="post" className="flex items-stretch gap-1">
+            <AuthenticityTokenInput />
+            <input type="hidden" name="submit" value="raise" />
+            <input
+              type="number"
+              name="amount"
+              min={minRaiseTarget}
+              step={1}
+              value={raiseTo}
+              onChange={(e) => setRaiseTo(parseInt(e.target.value, 10) || minRaiseTarget)}
+              className="w-20 bg-emerald-950 text-white px-2 py-2 rounded-lg ring-1 ring-emerald-700 tabular-nums"
+              aria-label="Raise to"
+            />
+            <button
+              type="submit"
+              disabled={submitting || raiseTo < minRaiseTarget}
+              className={buttonClass({ variant: 'warning' })}
+            >
+              Raise to
+            </button>
+          </fetcher.Form>
+        )}
       </div>
-
-      {legalKinds.has('bet') && (
-        <fetcher.Form method="post" className="flex items-stretch gap-2 justify-center">
-          <input type="hidden" name="submit" value="bet" />
-          <input
-            type="number"
-            name="amount"
-            min={minBet}
-            step={1}
-            value={betAmount}
-            onChange={(e) => setBetAmount(parseInt(e.target.value, 10) || minBet)}
-            className="w-28 bg-emerald-950 text-white px-3 py-2 rounded-lg ring-1 ring-emerald-700 tabular-nums"
-            aria-label="Bet amount"
-          />
-          <button
-            type="submit"
-            disabled={submitting || betAmount < minBet}
-            className={buttonClass({ variant: 'warning' })}
-          >
-            Bet
-          </button>
-        </fetcher.Form>
-      )}
-
-      {legalKinds.has('raise') && (
-        <fetcher.Form method="post" className="flex items-stretch gap-2 justify-center">
-          <input type="hidden" name="submit" value="raise" />
-          <input
-            type="number"
-            name="amount"
-            min={minRaiseTarget}
-            step={1}
-            value={raiseTo}
-            onChange={(e) => setRaiseTo(parseInt(e.target.value, 10) || minRaiseTarget)}
-            className="w-28 bg-emerald-950 text-white px-3 py-2 rounded-lg ring-1 ring-emerald-700 tabular-nums"
-            aria-label="Raise to"
-          />
-          <button
-            type="submit"
-            disabled={submitting || raiseTo < minRaiseTarget}
-            className={buttonClass({ variant: 'warning' })}
-          >
-            Raise to
-          </button>
-        </fetcher.Form>
-      )}
     </div>
   );
 }
@@ -167,6 +180,7 @@ function SingleButton({
 }) {
   return (
     <fetcher.Form method="post">
+      <AuthenticityTokenInput />
       <input type="hidden" name="submit" value={submitValue} />
       <button type="submit" disabled={disabled} className={buttonClass({ variant })}>
         {label}
@@ -215,6 +229,7 @@ function DiscardPicker({ viewerSlot }: { viewerSlot: FiveCardDrawView['players']
       </div>
 
       <fetcher.Form method="post" className="flex justify-center">
+        <AuthenticityTokenInput />
         <input type="hidden" name="submit" value="discard" />
         <input type="hidden" name="indices" value={[...marked].sort((a, b) => a - b).join(',')} />
         <button type="submit" disabled={submitting} className={buttonClass({ variant: 'warning' })}>

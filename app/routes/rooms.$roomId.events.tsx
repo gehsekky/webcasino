@@ -3,9 +3,16 @@ import { requireUser } from 'auth/guards.server';
 import { prisma } from 'db.server';
 import { blackjackEngine } from 'engines/blackjack/engine';
 import { fiveCardDrawEngine } from 'engines/poker/fiveCardDraw/engine';
+import { holdemEngine } from 'engines/poker/holdem/engine';
+import { slotsEngine } from 'engines/slots/engine';
+import { rouletteEngine } from 'engines/roulette/engine';
 import { BlackjackStateSchema, type BlackjackState } from 'lib/gameState';
 import type { FiveCardDrawState } from 'engines/poker/fiveCardDraw/types';
+import type { HoldemState } from 'engines/poker/holdem/types';
+import type { SlotsState } from 'engines/slots/types';
+import type { RouletteState } from 'engines/roulette/types';
 import { broadcastBus, type BroadcastedHandEvent } from 'lib/broadcastBus.server';
+import { chatBus, type BroadcastedChatMessage } from 'lib/chatBus.server';
 
 /**
  * Room-level SSE stream. Forwards `state_update` events from the room's
@@ -57,12 +64,33 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const gameType = room.game_type;
 
   const projectView = (state: unknown): unknown => {
-    if (gameType === 'poker') {
-      const s = state as FiveCardDrawState;
-      return fiveCardDrawEngine.viewFor(s, projectionTarget);
+    // Use the state's `type` discriminator (not `gameType` from the room
+    // row) so an in-flight hand always projects through its own engine,
+    // even if the room's `game_type` was switched between hands.
+    const t = (state as { type?: string } | null)?.type;
+    if (t === 'fivecarddraw') {
+      return fiveCardDrawEngine.viewFor(state as FiveCardDrawState, projectionTarget);
     }
-    const s = state as BlackjackState;
-    return blackjackEngine.viewFor(s, projectionTarget);
+    if (t === 'holdem') {
+      return holdemEngine.viewFor(state as HoldemState, projectionTarget);
+    }
+    if (t === 'slots') {
+      return slotsEngine.viewFor(state as SlotsState, projectionTarget);
+    }
+    if (t === 'roulette') {
+      return rouletteEngine.viewFor(state as RouletteState, projectionTarget);
+    }
+    if (t === 'blackjack') {
+      return blackjackEngine.viewFor(state as BlackjackState, projectionTarget);
+    }
+    // Fallback: trust the room's game_type.
+    if (gameType === 'poker') {
+      return fiveCardDrawEngine.viewFor(state as FiveCardDrawState, projectionTarget);
+    }
+    if (gameType === 'holdem') {
+      return holdemEngine.viewFor(state as HoldemState, projectionTarget);
+    }
+    return blackjackEngine.viewFor(state as BlackjackState, projectionTarget);
   };
 
   const stream = new ReadableStream<Uint8Array>({
@@ -93,6 +121,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
       let unsubscribe: () => void = () => undefined;
 
+      // Chat is room-scoped and runs independently of hand lifecycle.
+      // Subscribe regardless of whether a hand is active; the chat pane
+      // is rendered in lobby and hand modes alike.
+      const unsubscribeChat = chatBus.subscribe(roomId, (msg: BroadcastedChatMessage) => {
+        send('chat_message', msg);
+      });
+
       if (latest && handIsActive) {
         const handId = latest.id;
 
@@ -121,18 +156,26 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
           const handRow = await prisma.hand.findUnique({ where: { id: handId } });
           if (!handRow) {
             send('error', { message: 'hand not found' });
+            unsubscribe();
+            unsubscribeChat();
             closed = true;
             controller.close();
             return;
           }
-          const state =
-            gameType === 'poker'
-              ? (handRow.data as unknown as FiveCardDrawState)
-              : BlackjackStateSchema.parse(handRow.data);
+          // Pick the engine state shape from the hand's own `type` field,
+          // not the room's game_type — same reasoning as `projectView`.
+          const t = (handRow.data as { type?: string } | null)?.type;
+          let state: unknown;
+          if (t === 'fivecarddraw' || t === 'holdem' || t === 'slots' || t === 'roulette') {
+            state = handRow.data;
+          } else {
+            state = BlackjackStateSchema.parse(handRow.data);
+          }
           send('snapshot', { view: projectView(state) });
         } catch (err) {
           send('error', { message: (err as Error).message });
           unsubscribe();
+          unsubscribeChat();
           closed = true;
           controller.close();
           return;
@@ -155,6 +198,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
         closed = true;
         clearInterval(keepalive);
         unsubscribe();
+        unsubscribeChat();
         try {
           controller.close();
         } catch {

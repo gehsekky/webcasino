@@ -10,9 +10,9 @@ export type ConnectionStatus = 'connecting' | 'open' | 'reconnecting' | 'closed'
  * for the SSE round-trip; live updates take over once the EventSource
  * opens.
  *
- * Keyed by `roomId`, not `handId`, so a single subscription survives the
- * transition from one hand to the next at the same room — the server
- * picks up whichever hand is active at connection time.
+ * The parent remounts this component on every hand transition (via
+ * `key={handId}` on the call site), so this hook only needs to handle
+ * a single hand's lifecycle — no internal handId reconciliation.
  */
 export function useHandView(
   roomId: string,

@@ -6,12 +6,23 @@ import {
   Scripts,
   ScrollRestoration,
   isRouteErrorResponse,
+  useLoaderData,
   useRouteError,
 } from '@remix-run/react';
-import type { LinksFunction } from '@remix-run/node';
+import { json, type LinksFunction, type LoaderFunctionArgs } from '@remix-run/node';
+import { AuthenticityTokenProvider } from 'remix-utils/csrf/react';
+import { csrf } from 'auth/csrf.server';
 import stylesheet from 'tailwind.css?url';
 
 export const links: LinksFunction = () => [{ rel: 'stylesheet', href: stylesheet }];
+
+export async function loader({ request }: LoaderFunctionArgs) {
+  const [token, cookieHeader] = await csrf.commitToken(request);
+  return json(
+    { csrf: token },
+    cookieHeader ? { headers: { 'Set-Cookie': cookieHeader } } : undefined,
+  );
+}
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -33,7 +44,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  return <Outlet />;
+  const { csrf } = useLoaderData<typeof loader>();
+  return (
+    <AuthenticityTokenProvider token={csrf}>
+      <Outlet />
+    </AuthenticityTokenProvider>
+  );
 }
 
 /**

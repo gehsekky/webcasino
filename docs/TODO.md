@@ -3,11 +3,12 @@
 Actionable items from the architecture and best-practices review.
 Roughly ordered by ROI within each section.
 
-> **Current focus (2026-05-19):** Finish the game-engine architecture, then
-> rewrite the frontend from scratch. **All UI polish and component-level
-> changes are deferred** — touch components only when a backend change
-> mechanically requires it. The "Architecture" items below marked
-> _(UI — deferred)_ live behind that gate.
+> **Current focus (2026-05-20):** Five games live (blackjack, 5-card
+> draw, Texas Hold'em, slots, roulette) on the multiplayer room model
+> with chat, room naming, and mid-room game switching. UI is being
+> iterated actively now — the earlier "defer all UI" gate is lifted.
+> Next-up candidates: production-readiness items, smarter Hold'em AI,
+> Hold'em dealer-button rotation, and the deferred major-version migs.
 
 ## Critical correctness bugs
 
@@ -15,42 +16,77 @@ Roughly ordered by ROI within each section.
 - [x] **`forEach` with `async` callback skips awaits.** `app/actions/game.ts:164` — replace with `for (const game_player of game.game_player) { await dealToPlayer(...) }`. Without this, `dealToDealer` and the rest of `startGame` run before player deals finish. _(Done — task #2.)_
 - [x] **Query escapes the transaction.** `app/actions/game.ts:171` — `getGameById(game?.id || '')` runs inside `prisma.$transaction` without passing `tx`. Pass `tx` so the re-read sees in-flight writes. _(Done — task #2.)_
 - [x] **Misleading comment on debit path.** `app/actions/game.ts:182-185` — comment claims money is already debited at bet time, but it isn't (no debit in `placeInitialBet`). Either remove the comment or rewrite it to match reality. _(Done — task #2.)_
+- [x] **Blackjack split crash on next action.** `app/actions/handEngine.server.ts:156` — `buildUserMap` was being passed split-sibling slot ids (`${parentId}:split:N`) which aren't valid UUIDs, breaking Prisma's `where: { id: { in: [...] } }`. Fixed by filtering to slots with `parentSlotId == null` — `ownerOf` already resolves split siblings via the parent. _(Pre-existing bug surfaced during CSRF testing.)_
 
 ## Security
 
 - [x] **No authentication.** Was: `findOrCreateUserByName` created users by name only with no password check. **Now:** Google OAuth via `remix-auth` + `remix-auth-google`, with `oauth_identity` table, session storage, and an extensible provider registry in `app/auth/providers.server.ts`. _(Done — task #3.)_
 - [x] **URL-based authorization.** `/game/$gamePlayerId` lets anyone with the UUID control that seat. **Now:** `requireSeat(request, gamePlayerId)` in `app/auth/guards.server.ts` enforces `game_player.user_id === sessionUser.id`. _(Done — task #3.)_
 - [x] **No bet validation.** `placeInitialBet` now validates `amount > 0` (positive integer), `amount <= gamePlayer.user.money`, and `minimumBet <= amount <= maximumBet`. Hard safety net: the atomic `UPDATE user SET money = money + delta WHERE money >= minRequired` in `recordMoneyTransaction` rejects any insufficient-funds debit. _(Done — task #4.)_
-- [ ] **No CSRF protection** on `<Form method="post">` flows. Consider `remix-utils/csrf` or equivalent if this leaves localhost.
+- [x] **CSRF protection** on `<Form method="post">` flows. `remix-utils/csrf` wired in via `app/auth/csrf.server.ts` (signed cookie + signed-token validate). `app/root.tsx` loader commits a token and wraps children in `<AuthenticityTokenProvider>`; every form across `_index.tsx` and the form-rendering components includes `<AuthenticityTokenInput />`; every action route (`_index.tsx`, `rooms.$roomId.tsx`, `auth.$provider.tsx`, `auth.logout.tsx`) calls `csrf.validate(...)` and returns 403 on `CSRFError`.
+
+## Multiplayer + game variety
+
+- [x] **Multiplayer rooms.** `casino_table` is now a persistent room with `name`, `join_token`, `max_seats`, `created_by`. Roster lives in `seat` rows; hands live in `hand` rows. Room-centric URLs (`/rooms/$roomId`). _(Done in earlier sprint; commit 1fd0ce6.)_
+- [x] **Room naming.** `casino_table.name VARCHAR(128) NOT NULL`, unique per creator. Migration backfills existing rows. Surfaced in landing page room list, in-room header, and invitation list. `CreateGameModal` requires it.
+- [x] **Invitations + join tokens.** `table_invitation` row per (room, user). Pending/accepted/declined lifecycle. Shareable `/join/$token` URL upserts a pending invite or sends already-seated users straight in.
+- [x] **AI auto-fill.** Empty seats are filled with bot users when a hand starts; the pool of bot users is provisioned in `app/auth/aiUsers.server.ts`. Bots already in another active hand are skipped. _(Commits 836a301, 3ba6616.)_
+- [x] **Game switching mid-room.** Creator-only `switchRoomGame` action (`app/actions/tableLifecycle.server.ts`) validates seat-count compatibility against the new game's `GAME_SEAT_RANGES`. Submit triggers an immediate `startHand` of the new game so the table doesn't sit idle. `GameSwitcher` renders inline (read-only label for non-creators).
+- [x] **Real-time chat.** Persisted `chat_message` table (cascade-deleted with room); `chatBus` (room-keyed `EventBus`) layers realtime delivery on top. SSE `/rooms/$roomId/events` forwards `chat_message` events. `ChatPane` does an initial-scrollback render from the loader, merges incoming SSE messages by id, auto-scrolls; composer is a textarea with Enter-to-send / Shift+Enter newline. Layout is a two-pane grid (chat on the right at lg+, stacked below on mobile).
+- [x] **Avatar component.** Deterministic initials + name-hashed HSL color (`app/components/Avatar.tsx`). AI seats get a gear glyph + neutral gray so bots are visually distinct.
+- [x] **Wide-row seats.** `PokerSeat` and `PlayerSection` use a shared structural type and one full-width-row layout: avatar + identity + status + cards filling the negative space + total/rank on the right. Used by blackjack, 5-card draw, and Texas Hold'em.
+- [x] **Five games live.**
+  - Blackjack (`engines/blackjack/`) — all four standard rules (hit/stay/double/surrender/split/insurance), multi-seat, AI participation.
+  - 5-Card Draw (`engines/poker/fiveCardDraw/`) — antes, two betting rounds, draw phase, showdown via shared hand-eval.
+  - Texas Hold'em (`engines/poker/holdem/`) — small/big blinds, BB option enforced via `hasActedThisRound`, four streets (preflop → flop → turn → river), best-5-of-7 showdown via shared `bestHandFrom`, fast-forward to showdown when only one player can still bet. Dealer button currently fixed at seat 0 (see backlog).
+  - Slots (`engines/slots/`) — single-seat, 3 reels of 5 symbols, three-of-a-kind + two-sevens payouts.
+  - Roulette (`engines/roulette/`) — European single-zero (0-36), 13 bet kinds (straight + 12 outside), multi-player.
+- [x] **E2E tests.** Playwright + chromium installed; `playwright.config.ts` boots its own dev server with `E2E_AUTH_BYPASS=1`. A test-only `/test-auth/login` route (refuses unless the env var is set AND `NODE_ENV !== 'production'`) lets the auth fixture in `e2e/fixtures.ts` skip the real Google OAuth. Nine specs across `landing.spec.ts`, `room.spec.ts`, and `new-games.spec.ts`. Runs in ~8s locally via `npm run e2e`.
+
+### Open backlog from this batch
+
+- [ ] **Hold'em dealer button rotation.** Today `dealerIdx = 0` always — every hand has the same SB / BB / button. Rotate `dealerIdx` between hands (probably by storing it on the room or deriving from hand count) so blind contribution rotates fairly. Heads-up rules already handled.
+- [ ] **Slots / roulette views should subscribe to SSE.** Both currently re-render only on form submit. Single-seat slots is fine; multi-player roulette would benefit from live "X placed a bet" updates so a non-acting player can see the wheel state evolve. Hook in `useHoldemView`-style.
+- [ ] **Roulette: more bet types.** Corners, streets, splits, six-line. Engine extension point is `BetKind` + `isWinningBet`; UI extension is the bet-kind select. Out of scope for v1.
+- [ ] **Hold'em AI is passive.** Calls pair-or-better, never raises. Same passive policy as 5-card draw. Plays for engagement, not strength. Tighten with pot odds + hand-strength tiers + occasional aggression once we have a feel for table dynamics.
+- [ ] **Poker engine code dedup.** 5-card draw and Hold'em both inline `freshDeck`/`shuffle`/`draw`/`deepClone`/`advanceWithinRound`/`endBettingRound`. Extract into `engines/poker/shared/` once both engines have settled.
+- [ ] **Theme / color customization for rooms.** User-requested follow-up after room naming. Per-room color palette (felt color, accent), shown in the room header + chat. Schema: nullable `theme JSON` column or a small `room_theme` table.
 
 ## Type safety & data model
 
 - [x] **Replace `as unknown as` casts with runtime validation.** `app/lib/gameState.ts` defines `BlackjackStateSchema`, `GamePlayerStateSchema`, and a `GameStateSchema` discriminated union; `parseBlackjackState()` / `parseGamePlayerState()` validate at every read site across `actions/`, `routes/`, and `components/`. `Card.suit` and `Card.rank` narrowed to enum types so structural compatibility holds. Schema specs added in `gameState.spec.ts`. Remaining `as unknown as` sites are limited to Prisma's `JsonObject` write typing and the remix-auth Strategy interface cast. _(Done — task #5.)_
-- [x] **Lift stringly-typed enums to TS string literal unions.** The blackjack engine (`app/engines/blackjack/`) now uses discriminated-union `BlackjackAction` (`'place_bet' | 'hit' | 'stay' | 'double_down' | 'surrender' | 'dealer_play' | 'deal_initial'`) and a tight `PlayerStatus` union. Money transaction type narrowed to `'debit' | 'credit'` in `recordMoneyTransaction`. The legacy `'indexOf(x) > -1'` checks in `actions/game.server.ts` / `gamePlayer.server.ts` will go away when those files are rewritten to delegate to the engine (planned with #9 / #10). _(Done — task #6.)_
-- [x] **Reconcile schema source-of-truth.** Adopted Prisma Migrate. `prisma/schema.prisma` is the sole source of truth; `prisma/migrations/20260519000000_init/migration.sql` baselines the current schema; `prisma/seed.sql` is trimmed to `CREATE DATABASE` + `CREATE EXTENSION uuid-ossp` (Postgres `docker-entrypoint-initdb.d` runs it on first boot). Migration applied on the local DB via `prisma migrate resolve --applied`; container entrypoint runs `prisma migrate deploy` before app start.
-- [x] **Make `updated_at` automatic.** All six `updated_at` columns in `schema.prisma` now carry `@updatedAt`; the client maintains the timestamp on every UPDATE. The legacy `gamePlayer.ts:78` file no longer exists (engine refactor); the remaining manual `updated_at: new Date()` calls in `handEngine.server.ts` / `pokerEngine.server.ts` were dropped as redundant.
-- [ ] **Move deck out of the JSON blob (longer-term).** Every hit/stay rewrites the entire deck array in `game.data`. Consider deriving deck state from a seed + dealt-cards log, or a per-card table.
+- [x] **Lift stringly-typed enums to TS string literal unions.** The blackjack engine (`app/engines/blackjack/`) now uses discriminated-union `BlackjackAction` (`'place_bet' | 'hit' | 'stay' | 'double_down' | 'surrender' | 'dealer_play' | 'deal_initial'`) and a tight `PlayerStatus` union. Money transaction type narrowed to `'debit' | 'credit'` in `recordMoneyTransaction`. _(Done — task #6.)_
+- [x] **Reconcile schema source-of-truth.** Adopted Prisma Migrate. `prisma/schema.prisma` is the sole source of truth; baseline + `multiplayer_invites` + `chat_messages` + `room_name_and_game_switch` migrations applied. Container entrypoint runs `prisma migrate deploy` before app start.
+- [x] **Make `updated_at` automatic.** All `updated_at` columns in `schema.prisma` carry `@updatedAt`; the client maintains the timestamp on every UPDATE.
+- [ ] **Move deck out of the JSON blob (longer-term).** Every hit/stay rewrites the entire deck array in `hand.data`. Consider deriving deck state from a seed + dealt-cards log, or a per-card table. Now applies to all five games' state blobs, not just blackjack.
 - [ ] **Consider money in cents (longer-term).** `Math.floor(bet * 1.5)` already truncates on blackjack payouts; cents or `Decimal` would avoid this.
+- [ ] **Zod schemas for the new engine states.** Blackjack has `BlackjackStateSchema`; 5cd / Hold'em / slots / roulette currently trust the engine wrote it and cast through `as unknown as`. Each new engine should add a schema spec alongside its `engine.spec.ts`.
 
 ## Architecture
 
-- [x] **Singleton Prisma client.** All `app/actions/*` files now import `prisma` from `db.server`. `PrismaTransactionClient` type lives in `db.server.ts` (re-exported from `actions/game.server.ts` for compatibility). _(Done — task #4.)_
-- [x] **Use `.server.ts` suffix for server-only modules.** All `app/actions/*.ts` renamed to `*.server.ts` via `git mv` so Vite reliably tree-shakes them out of the client bundle. Imports updated across `routes/`, `components/`, and internally within `actions/`. _(Done — task #4.)_
-- [ ] **Fix the import source in `routes/game.$gamePlayerId.tsx:2`.** `json` and `useLoaderData` should come from `@remix-run/react`, not `react-router`. Works today but isn't the documented surface. _(UI — deferred; will be handled by the frontend rewrite.)_
-- [ ] **Add `ErrorBoundary` exports** to routes (`_index.tsx`, `game.$gamePlayerId.tsx`) so loader/action errors render gracefully instead of crashing. _(UI — deferred.)_
-- [x] **Reduce coupling between `game.ts` and `gamePlayer.ts`.** After engine integration (task #11), both files are reduced to read-only DTO type aliases + a single `findUnique` each. No cross-imports. All state transitions live in `actions/handEngine.server.ts`. _(Done — task #11.)_
-- [ ] **Replace `window.open` resume flow** in `app/components/CasinoLanding/index.tsx:13` with normal in-tab navigation. _(UI — deferred.)_
+- [x] **Singleton Prisma client.** All `app/actions/*` files now import `prisma` from `db.server`. `PrismaTransactionClient` type lives in `db.server.ts`. _(Done — task #4.)_
+- [x] **Use `.server.ts` suffix for server-only modules.** All `app/actions/*.ts` are `*.server.ts` so Vite reliably tree-shakes them out of the client bundle. _(Done — task #4.)_
+- [x] **Fix the import source in `routes/game.$gamePlayerId.tsx:2`.** _(Obsolete — the route no longer exists; the multiplayer rewrite replaced it with `rooms.$roomId.tsx`.)_
+- [x] **Add `ErrorBoundary` exports** to routes so loader/action errors render gracefully instead of crashing. _(Done — `app/root.tsx` exports a global `ErrorBoundary`. Per-route boundaries can be added later if a route needs a more specific fallback.)_
+- [x] **Reduce coupling between `game.ts` and `gamePlayer.ts`.** After engine integration (task #11), both files are reduced to read-only DTO type aliases. All state transitions live in `actions/handEngine.server.ts`. _(Done — task #11.)_
+- [x] **Replace `window.open` resume flow** in `app/components/CasinoLanding/index.tsx`. _(Obsolete — the component was removed during the casino-areas rewrite, commit c0c114f.)_
+- [x] **Generic `EventBus<T>`.** Hand events (per-handId) and chat (per-roomId) share `app/lib/eventBus.server.ts`; the old `BroadcastBus` is now just a typed instance. Adding a new pub/sub channel is one declaration + an instance.
+- [ ] **Engine registry needs the new games.** `app/engines/registry.ts` currently only lists blackjack. 5-card draw, Hold'em, slots, and roulette are dispatched directly from `tableLifecycle.startHand` instead. Wire them through the registry so the dispatcher becomes data-driven.
+- [ ] **SSR-safe rendering pass.** A few client-only constructs caused hydration mismatches mid-iteration (timezone-dependent timestamps in `ChatPane`, `window.location.origin` in `RoomLobby`). Both fixed locally — worth a one-time sweep for other `Date`/`window`/`Intl`/`Math.random` usages that end up in JSX.
+- [ ] **Consolidate room-page SSE connections.** `useHandView`/`usePokerView`/`useHoldemView` each open their own `EventSource`, and `ChatPane` opens a third. Functional but wasteful. Lift into a single context provider keyed on `roomId`.
 
 ## Tooling & DX
 
-- [x] **Add tests.** Vitest + fast-check installed. Spec files for `app/lib/Card/index.ts` (`Card.spec.ts`) and `app/lib/Deck/index.ts` (`Deck.spec.ts`); 21 tests covering numeric/face/ace edge cases, deck completeness, and shuffle preservation. Test file convention: `*.spec.ts`. _(Done — task #1.)_
-- [x] **Add CI.** `.github/workflows/ci.yml` runs `npm ci`, `typecheck`, `lint`, `format:check`, and `test` on push to main and on PRs, using Node from `.nvmrc` (22.12.0). `concurrency.cancel-in-progress` so stacked pushes don't waste minutes.
-- [x] **Add Prettier.** Installed `prettier` + `eslint-config-prettier`; `.prettierrc.json` sets `singleQuote`, `trailingComma: 'all'`, `printWidth: 100`. `npm run format` / `npm run format:check`; `format:check` runs in CI. ESLint extends `prettier` so it doesn't fight prettier's formatting rules.
-- [x] **Multi-stage Dockerfile.** Now four stages (`base`/`prod-deps`/`builder`/`runner`). Runner is alpine + `dumb-init`, runs as `node` user, copies prod-only `node_modules` from `prod-deps` and `build/` from `builder`. Entrypoint runs `prisma migrate deploy` then `npm run start`.
-- [x] **Move `prisma generate` out of `entrypoint.sh`** into the Dockerfile build step — handled by the `postinstall: prisma generate` hook in package.json, which fires during `npm ci` at image build time. Dockerfile now copies `prisma/` alongside `package*.json` before `npm ci` so the hook can resolve `schema.prisma`. Entrypoint is now just `npm run start`.
-- [x] **Expand `.dockerignore`.** Now excludes `.git`, `.cache`, `build`, `.env(*)` (with an `.env.example` allowlist), `*.md`, `.github`, IDE dirs, and `coverage` in addition to `node_modules`.
-- [x] **Remove `postcss.config.cjs` from `tsconfig.json` `include`** — dropped; the toolchain reads it directly as CommonJS, the include entry was a no-op.
-- [ ] **Decide on Node version.** `.nvmrc` says `v22.1.0`, `Dockerfile` uses `node:22.1-alpine`, `package.json` engines says `>=18.0.0`. Align them (probably pin engines to `>=22`).
+- [x] **Add unit tests.** Vitest + fast-check. 220 specs across 17 files. Test file convention: `*.spec.ts`.
+- [x] **Add E2E tests.** See "Multiplayer + game variety".
+- [x] **Add CI.** `.github/workflows/ci.yml` runs `npm ci`, `typecheck`, `lint`, `format:check`, and `test` on push to main and on PRs.
+- [x] **Add Prettier.** `.prettierrc.json` sets `singleQuote`, `trailingComma: 'all'`, `printWidth: 100`. `format:check` runs in CI.
+- [x] **Multi-stage Dockerfile.** Four stages (`base`/`prod-deps`/`builder`/`runner`). Runner is alpine + `dumb-init`, runs as `node` user. Entrypoint runs `prisma migrate deploy` then `npm run start`.
+- [x] **Move `prisma generate` out of `entrypoint.sh`** — handled by the `postinstall: prisma generate` hook at image build time.
+- [x] **Expand `.dockerignore`.** Excludes `.git`, `.cache`, `build`, `.env(*)` (with `.env.example` allowlist), `*.md`, `.github`, IDE dirs, `coverage`, plus Playwright outputs.
+- [x] **Decide on Node version.** All three sources pinned to Node 22.12.
+- [ ] **Run e2e in CI.** Currently CI only runs unit tests. Wire `npm run e2e` into the workflow with a fresh Postgres service container (or per-job DB). Cleanup test users between runs.
+- [ ] **Hide the seed.sql from the runtime image.** Belongs only in the Postgres init dir; doesn't need to ship in the app image.
 
 ## Production readiness
 
@@ -79,7 +115,9 @@ wiring) versus what can land independently of hosting choices.
 - [ ] **Secrets management.** `.env` is fine locally; in prod move to the host's secrets store (Fly secrets / Doppler / 1Password / AWS Secrets Manager). Never bake secrets into the image; document rotation procedure.
 - [ ] **DB backups.** Automated point-in-time backups with ≥7-day retention. Verify restore quarterly. If the host manages Postgres (Fly/Railway/RDS), turn on PITR; otherwise schedule `pg_dump` to S3.
 - [ ] **DB connection pooling.** PgBouncer (transaction mode) or Prisma Accelerate. Prisma's default opens one connection per process; under any real concurrency that gets exhausted fast.
-- [ ] **Rate limiting.** Per-IP for unauthenticated routes (`/login`, OAuth callbacks); per-user for game actions. `remix-utils/rate-limit` or fronted by Cloudflare.
+- [ ] **Multi-instance pub/sub.** Both `broadcastBus` and `chatBus` are in-process. Going to multiple app instances requires Postgres LISTEN/NOTIFY (cheapest, already have the DB) or a real broker (Redis Streams / NATS). Subscribe/publish interface is already abstracted via `EventBus<T>`.
+- [ ] **Rate limiting.** Per-IP for unauthenticated routes (`/login`, OAuth callbacks); per-user for game + chat actions. `remix-utils/rate-limit` or fronted by Cloudflare.
+- [ ] **Chat moderation primitives.** Profanity filter, per-room mute/kick (creator-only), rate limit on send. Required before the chat ships to strangers.
 - [ ] **Dependabot / Renovate.** Weekly PRs for npm + Docker base image updates so the audit list doesn't drift.
 - [ ] **Image vulnerability scan.** Trivy (or Snyk / Docker Scout) on the built image in CI; fail PRs on high/critical CVEs.
 - [ ] **Disaster recovery runbook.** `docs/RUNBOOK.md` documenting: how to roll back a deploy, how to restore from backup, how to revoke a leaked secret, how to put the site in maintenance mode.
@@ -89,20 +127,20 @@ wiring) versus what can land independently of hosting choices.
 These were skipped during the package-update pass because each is a real migration:
 
 - [ ] **React 18 → 19** (+ `@types/react(-dom)` 18 → 19).
-- [ ] **TailwindCSS 3 → 4** (new engine, CSS-first config) + **daisyUI 4 → 5** (requires Tailwind 4).
+- [ ] **TailwindCSS 3 → 4** (new engine, CSS-first config). _(daisyUI 4 → 5 dropped — daisyUI was removed entirely in commit c0c114f.)_
 - [ ] **Prisma 5 → 7** (client API + migration command changes across two majors).
 - [ ] **ESLint 8 → 9/10** (flat config migration) + **@typescript-eslint 6 → 8** (requires flat config).
 - [ ] **TypeScript 5.4 → 6.**
 - [ ] **Vite 5 → 8** (blocked until the Remix 2 vite plugin is verified on newer Vite, or until migrating to React Router v7).
-- [ ] **Migrate to React Router v7 / Remix 3.** This is the only real fix for the remaining 15 `npm audit` findings (all rooted in old `esbuild` pinned by `@remix-run/dev` 2.17).
+- [ ] **Migrate to React Router v7 / Remix 3.** This is the only real fix for the remaining `npm audit` findings (all rooted in old `esbuild` pinned by `@remix-run/dev` 2.x).
 
 ## Destination state — further out
 
-Surfaced during the multi-game / multiplayer-capable architecture review. Each becomes urgent only after the top-10 architectural work is in place, but worth listing so they aren't forgotten.
+Surfaced during the multi-game / multiplayer-capable architecture review. Each becomes urgent only after the production-readiness work is in place, but worth listing so they aren't forgotten.
 
-- [ ] **Provably-fair commit-reveal UI.** Server commits `hash(seed)` before a hand and reveals `seed` after; client can verify the shuffle. Required for any "fair play" claim, table-stakes for crypto-casino-style trust.
+- [ ] **Provably-fair commit-reveal UI.** Server commits `hash(seed)` before a hand and reveals `seed` after; client can verify the shuffle. Required for any "fair play" claim, table-stakes for crypto-casino-style trust. Now applies to all five games' RNG, not just card shuffles.
 - [ ] **KYC / AML / geo-fencing.** Identity verification, source-of-funds checks, jurisdiction enforcement. Mandatory the moment real money is involved.
 - [ ] **Anti-collusion forensics for poker.** IP/device/account-cluster detection, hand-history pattern analysis, chip-dumping detection. Only matters once multi-human poker exists.
 - [ ] **Observability — structured logging, tracing, metrics.** Per-game-type latency, money-flow dashboards, alerting on ledger discrepancies. Required to operate at any real volume.
-- [ ] **Multi-region deployment + state replication.** Latency-sensitive multiplayer (poker timer ticks) needs regional servers; ledger needs strong consistency. Hosting choices interact with the real-time transport decision (item #7 in the top-10).
+- [ ] **Multi-region deployment + state replication.** Latency-sensitive multiplayer (poker timer ticks, roulette spin synchronization) needs regional servers; ledger needs strong consistency. Hosting choices interact with the real-time transport decision.
 - [ ] **Payment-processor integration.** Deposits/withdrawals, chargeback handling, wallet/cashier flows. Distinct from the internal ledger but must reconcile against it.

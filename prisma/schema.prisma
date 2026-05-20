@@ -28,6 +28,7 @@ model user {
   money_transaction money_transaction[]
   oauth_identity    oauth_identity[]
   table_invitation  table_invitation[]
+  chat_message      chat_message[]
 }
 
 model oauth_identity {
@@ -49,6 +50,10 @@ model oauth_identity {
 /// for historical reasons.
 model casino_table {
   id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  /// Display name chosen by the creator. Unique per creator only — two
+  /// different users can each have a "Friday Night" room. Backend uses
+  /// `id` everywhere; `name` is purely for UI.
+  name        String   @db.VarChar(128)
   game_type   String   @db.VarChar(32)
   minimum_bet Int
   maximum_bet Int
@@ -64,6 +69,24 @@ model casino_table {
   seat        seat[]
   hand        hand[]
   table_invitation table_invitation[]
+  chat_message     chat_message[]
+
+  @@unique([created_by, name])
+}
+
+/// Chat message scoped to a room. Persisted so members can read scrollback
+/// after reload. Realtime delivery is layered on via `chatBus` (in-process)
+/// + the room SSE stream; the DB row is the source of truth.
+model chat_message {
+  id           String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  table_id     String       @db.Uuid
+  user_id      String       @db.Uuid
+  body         String       @db.VarChar(500)
+  created_at   DateTime     @default(now()) @db.Timestamptz(6)
+  casino_table casino_table @relation(fields: [table_id], references: [id], onDelete: Cascade)
+  user         user         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([table_id, created_at])
 }
 
 /// A user's persistent claim on a numbered position at a table. Survives

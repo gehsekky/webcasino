@@ -1,4 +1,5 @@
 import { Form, Link } from '@remix-run/react';
+import { AuthenticityTokenInput } from 'remix-utils/csrf/react';
 import { buttonClass } from 'lib/buttonStyle';
 
 type Viewer = {
@@ -33,6 +34,7 @@ export default function SiteHeader({ viewer }: SiteHeaderProps) {
               </p>
             </div>
             <Form method="post" action="/auth/logout">
+              <AuthenticityTokenInput />
               <button type="submit" className={buttonClass({ variant: 'ghost', size: 'sm' })}>
                 Sign out
               </button>
