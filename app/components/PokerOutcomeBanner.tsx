@@ -1,4 +1,4 @@
-import { Form } from '@remix-run/react';
+import { Form, Link } from '@remix-run/react';
 import type { FiveCardDrawView } from 'engines/poker/fiveCardDraw/types';
 import { CATEGORY_LABEL } from 'engines/poker/shared/types';
 import { buttonClass } from 'lib/buttonStyle';
@@ -56,11 +56,9 @@ export default function PokerOutcomeBanner({ view, handSeatId, area }: PokerOutc
           </button>
         </Form>
       ) : (
-        <Form method="post" action="/" className="mt-4 inline-block">
-          <button type="submit" className={buttonClass({ variant: 'neutral' })}>
-            Lobby
-          </button>
-        </Form>
+        <Link to="/" className={buttonClass({ variant: 'neutral', className: 'mt-4' })}>
+          Lobby
+        </Link>
       )}
     </div>
   );

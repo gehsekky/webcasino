@@ -36,6 +36,13 @@ export type PokerTableConfig = {
   numSeats: number;
   ante: number;
   minBet: number;
+  /**
+   * Maximum bet at the table. Stored on `casino_table.maximum_bet` so the
+   * lobby's reverse area lookup (`findAreaForTable`) can match this table
+   * back to its registered area config — keep this aligned with
+   * `AreaGame.maximumBet`.
+   */
+  maxBet: number;
   minimumBuyIn: number;
   maximumBuyIn: number;
 };
@@ -80,7 +87,7 @@ export async function createNewPokerHand(params: {
       data: {
         game_type: params.gameType,
         minimum_bet: cfg.minBet,
-        maximum_bet: cfg.maximumBuyIn,
+        maximum_bet: cfg.maxBet,
         max_seats: cfg.numSeats,
         created_by: params.user.id,
       },

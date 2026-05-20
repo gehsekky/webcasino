@@ -60,6 +60,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         numSeats: 3,
         ante: 1,
         minBet: game.minimumBet,
+        maxBet: game.maximumBet,
         minimumBuyIn: game.minimumBet * 20,
         maximumBuyIn: game.maximumBet * 10,
       },
