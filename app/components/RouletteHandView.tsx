@@ -26,20 +26,31 @@ type RouletteHandViewProps = {
   participants: Record<string, { name: string; isAi: boolean }>;
 };
 
-const OUTSIDE_BETS: BetKind[] = [
-  'red',
-  'black',
-  'odd',
-  'even',
-  'low',
-  'high',
-  'dozen1',
-  'dozen2',
-  'dozen3',
-  'column1',
-  'column2',
-  'column3',
+/**
+ * Number cells in the standard betting-board orientation (3 rows × 12
+ * columns, left-to-right, top-to-bottom):
+ *   row 0 (top):    3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36   (column 3)
+ *   row 1 (middle): 2, 5, 8, 11, 14, 17, 20, 23, 26, 29, 32, 35   (column 2)
+ *   row 2 (bottom): 1, 4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34   (column 1)
+ */
+const NUMBER_ROWS: number[][] = [
+  [3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36],
+  [2, 5, 8, 11, 14, 17, 20, 23, 26, 29, 32, 35],
+  [1, 4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34],
 ];
+/** Column bet kind per row of the number grid (top → bottom). */
+const COLUMN_BET_FOR_ROW: BetKind[] = ['column3', 'column2', 'column1'];
+
+type SelectedBet = { kind: BetKind; number?: number };
+
+function sameBet(a: SelectedBet | null, b: SelectedBet): boolean {
+  return a !== null && a.kind === b.kind && a.number === b.number;
+}
+
+function describeBet(b: SelectedBet): string {
+  if (b.kind === 'straight') return `Straight ${b.number}`;
+  return BET_LABEL[b.kind];
+}
 
 export default function RouletteHandView({
   roomId,
@@ -247,63 +258,25 @@ function BetForm({
   balance: number;
 }) {
   const fetcher = useFetcher();
-  const [betKind, setBetKind] = useState<BetKind>('red');
+  const [selected, setSelected] = useState<SelectedBet | null>(null);
   const [amount, setAmount] = useState<number>(min);
-  const [number, setNumber] = useState<number>(0);
-  const isStraight = betKind === 'straight';
   const submitting = fetcher.state !== 'idle';
-  const invalid = amount < min || amount > max || amount > balance;
+  const invalid = !selected || amount < min || amount > max || amount > balance;
 
   return (
     <fetcher.Form
       method="post"
       action={`/rooms/${roomId}`}
-      className="rounded-xl bg-emerald-900/40 ring-1 ring-emerald-700/40 p-4 space-y-3"
+      className="rounded-xl bg-emerald-900/40 ring-1 ring-emerald-700/40 p-3 space-y-3"
     >
       <AuthenticityTokenInput />
       <input type="hidden" name="submit" value="place_bet" />
-      <div className="flex flex-wrap gap-2 items-end">
-        <div className="flex flex-col gap-1">
-          <label htmlFor="bet-kind" className="text-xs uppercase tracking-wider text-emerald-200">
-            Bet
-          </label>
-          <select
-            id="bet-kind"
-            name="betKind"
-            value={betKind}
-            onChange={(e) => setBetKind(e.target.value as BetKind)}
-            className="rounded bg-emerald-950 text-white border border-emerald-700 px-2 py-2 text-sm"
-          >
-            <option value="straight">Straight (35:1)</option>
-            {OUTSIDE_BETS.map((k) => (
-              <option key={k} value={k}>
-                {BET_LABEL[k]} ({BET_PAYOUT[k]}:1)
-              </option>
-            ))}
-          </select>
-        </div>
+      <input type="hidden" name="betKind" value={selected?.kind ?? ''} />
+      <input type="hidden" name="number" value={selected?.number ?? ''} />
 
-        {isStraight && (
-          <div className="flex flex-col gap-1">
-            <label
-              htmlFor="bet-number"
-              className="text-xs uppercase tracking-wider text-emerald-200"
-            >
-              Number
-            </label>
-            <input
-              id="bet-number"
-              type="number"
-              name="number"
-              min={0}
-              max={36}
-              value={number}
-              onChange={(e) => setNumber(parseInt(e.target.value, 10) || 0)}
-              className="w-20 rounded bg-emerald-950 text-white border border-emerald-700 px-2 py-2 text-sm tabular-nums"
-            />
-          </div>
-        )}
+      <BettingBoard selected={selected} onSelect={setSelected} />
 
+      <div className="flex flex-wrap items-end gap-3 pt-1">
         <div className="flex flex-col gap-1">
           <label htmlFor="bet-amount" className="text-xs uppercase tracking-wider text-emerald-200">
             Amount
@@ -326,14 +299,211 @@ function BetForm({
           disabled={submitting || invalid}
           className={buttonClass({ variant: 'warning' })}
         >
-          {submitting ? '…' : 'Place'}
+          {submitting ? '…' : selected ? `Place — ${describeBet(selected)}` : 'Select a bet'}
         </button>
+
+        <p className="text-xs text-emerald-300/80 ml-auto">
+          min ${min} · max ${max} · balance ${balance.toLocaleString()}
+        </p>
       </div>
-      <p className="text-xs text-emerald-300/80">
-        min ${min} · max ${max} · balance ${balance.toLocaleString()}
-      </p>
     </fetcher.Form>
   );
+}
+
+function BettingBoard({
+  selected,
+  onSelect,
+}: {
+  selected: SelectedBet | null;
+  onSelect: (b: SelectedBet) => void;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      {/* Outer grid: [0-cell col] + [12 number cols] + [2:1 col]. Rows: 3
+          number rows, then a column-bet row, then dozens, then outside
+          bets. Min width keeps cells readable on narrow viewports. */}
+      <div
+        className="grid gap-0.5 min-w-[42rem] text-xs font-semibold select-none"
+        style={{
+          gridTemplateColumns: '2.5rem repeat(12, minmax(0, 1fr)) 2.5rem',
+        }}
+      >
+        {/* Zero cell — spans all 3 number rows. */}
+        <button
+          type="button"
+          onClick={() => onSelect({ kind: 'straight', number: 0 })}
+          className={cellClass(
+            'bg-emerald-700 hover:bg-emerald-600 text-white',
+            sameBet(selected, { kind: 'straight', number: 0 }),
+          )}
+          style={{ gridRow: 'span 3', height: 'auto' }}
+        >
+          0
+        </button>
+
+        {/* Three rows of numbers; per-row 2:1 column-bet trigger on the right. */}
+        {NUMBER_ROWS.map((row, rowIdx) => (
+          <NumberRow
+            key={rowIdx}
+            row={row}
+            columnBet={COLUMN_BET_FOR_ROW[rowIdx]}
+            selected={selected}
+            onSelect={onSelect}
+          />
+        ))}
+
+        {/* Dozens row — col-start 2, each spans 4 of the 12 number cols. */}
+        <BoardCell
+          kind="dozen1"
+          label="1st 12"
+          selected={selected}
+          onSelect={onSelect}
+          style={{ gridColumn: '2 / span 4' }}
+        />
+        <BoardCell
+          kind="dozen2"
+          label="2nd 12"
+          selected={selected}
+          onSelect={onSelect}
+          style={{ gridColumn: '6 / span 4' }}
+        />
+        <BoardCell
+          kind="dozen3"
+          label="3rd 12"
+          selected={selected}
+          onSelect={onSelect}
+          style={{ gridColumn: '10 / span 4' }}
+        />
+
+        {/* Outside bets row — 6 cells across the 12 number cols. */}
+        <BoardCell
+          kind="low"
+          label="1-18"
+          selected={selected}
+          onSelect={onSelect}
+          style={{ gridColumn: '2 / span 2' }}
+        />
+        <BoardCell
+          kind="even"
+          label="EVEN"
+          selected={selected}
+          onSelect={onSelect}
+          style={{ gridColumn: '4 / span 2' }}
+        />
+        <BoardCell
+          kind="red"
+          label="RED"
+          selected={selected}
+          onSelect={onSelect}
+          colorClass="bg-red-700 hover:bg-red-600 text-white"
+          style={{ gridColumn: '6 / span 2' }}
+        />
+        <BoardCell
+          kind="black"
+          label="BLACK"
+          selected={selected}
+          onSelect={onSelect}
+          colorClass="bg-slate-900 hover:bg-slate-800 text-white"
+          style={{ gridColumn: '8 / span 2' }}
+        />
+        <BoardCell
+          kind="odd"
+          label="ODD"
+          selected={selected}
+          onSelect={onSelect}
+          style={{ gridColumn: '10 / span 2' }}
+        />
+        <BoardCell
+          kind="high"
+          label="19-36"
+          selected={selected}
+          onSelect={onSelect}
+          style={{ gridColumn: '12 / span 2' }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function NumberRow({
+  row,
+  columnBet,
+  selected,
+  onSelect,
+}: {
+  row: number[];
+  columnBet: BetKind;
+  selected: SelectedBet | null;
+  onSelect: (b: SelectedBet) => void;
+}) {
+  return (
+    <>
+      {row.map((n) => {
+        const isSelected = sameBet(selected, { kind: 'straight', number: n });
+        const colorClass = isRed(n)
+          ? 'bg-red-700 hover:bg-red-600 text-white'
+          : 'bg-slate-900 hover:bg-slate-800 text-white';
+        return (
+          <button
+            key={n}
+            type="button"
+            onClick={() => onSelect({ kind: 'straight', number: n })}
+            className={cellClass(colorClass, isSelected)}
+          >
+            {n}
+          </button>
+        );
+      })}
+      <BoardCell
+        kind={columnBet}
+        label="2:1"
+        selected={selected}
+        onSelect={onSelect}
+        title={`Column bet — pays ${BET_PAYOUT[columnBet]}:1`}
+      />
+    </>
+  );
+}
+
+function BoardCell({
+  kind,
+  label,
+  selected,
+  onSelect,
+  colorClass = 'bg-emerald-950/80 hover:bg-emerald-800 text-emerald-100 ring-1 ring-emerald-700/40',
+  title,
+  style,
+}: {
+  kind: BetKind;
+  label: string;
+  selected: SelectedBet | null;
+  onSelect: (b: SelectedBet) => void;
+  colorClass?: string;
+  title?: string;
+  style?: React.CSSProperties;
+}) {
+  const isSelected = sameBet(selected, { kind });
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect({ kind })}
+      className={cellClass(colorClass, isSelected)}
+      title={title}
+      style={style}
+    >
+      {label}
+    </button>
+  );
+}
+
+function cellClass(colorClass: string, selected: boolean): string {
+  return [
+    'flex items-center justify-center h-10 rounded transition-colors',
+    colorClass,
+    selected ? 'ring-2 ring-yellow-300 ring-offset-1 ring-offset-emerald-900' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
 function SpinForm({ roomId, disabled }: { roomId: string; disabled: boolean }) {

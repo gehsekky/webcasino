@@ -45,11 +45,15 @@ test.describe('New games', () => {
     });
   });
 
-  test('Roulette: create + start hand shows the wheel + bet form', async ({ authedPage }) => {
+  test('Roulette: create + start hand shows the betting board', async ({ authedPage }) => {
     await createRoomOf(authedPage, 'roulette', `e2e-roulette-${Date.now()}`, 1);
     await authedPage.getByRole('button', { name: /Start Hand/i }).click();
-    // Bet kind select is the roulette tell.
-    await expect(authedPage.getByLabel(/^Bet$/i)).toBeVisible({ timeout: 5_000 });
-    await expect(authedPage.getByRole('button', { name: /Place/i })).toBeVisible();
+    // The betting board renders standard outside-bet cells.
+    await expect(authedPage.getByRole('button', { name: /^RED$/ })).toBeVisible({
+      timeout: 5_000,
+    });
+    await expect(authedPage.getByRole('button', { name: /^BLACK$/ })).toBeVisible();
+    // Place button is initially gated until a bet is selected.
+    await expect(authedPage.getByRole('button', { name: /Select a bet/i })).toBeVisible();
   });
 });
