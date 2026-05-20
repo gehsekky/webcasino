@@ -5,9 +5,14 @@ import tsconfigPaths from 'vite-tsconfig-paths';
 
 installGlobals();
 
+// Port is overridable via the `PORT` env var so the Playwright config
+// can spin up the e2e dev server on a different port (5274) without
+// clobbering a developer's locally-running `npm run dev` on 5273.
+const port = parseInt(process.env.PORT ?? '5273', 10);
+
 export default defineConfig({
   server: {
-    port: 5273,
+    port,
   },
   plugins: [remix(), tsconfigPaths()],
 });

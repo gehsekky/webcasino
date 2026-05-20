@@ -51,6 +51,7 @@
   "devDependencies": {
     "@playwright/test": "^1.60.0",
     "@remix-run/dev": "^2.9.1",
+    "@types/pg": "^8.20.0",
     "@types/react": "^18.2.20",
     "@types/react-dom": "^18.2.7",
     "@typescript-eslint/eslint-plugin": "^6.7.4",
