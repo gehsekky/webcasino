@@ -78,7 +78,5 @@ export function runAiCascade<State, Action>(
     steps.push({ slotId: actor, action });
   }
 
-  throw new Error(
-    `runAiCascade: exceeded maxSteps=${maxSteps} — possible engine/strategy stall`,
-  );
+  throw new Error(`runAiCascade: exceeded maxSteps=${maxSteps} — possible engine/strategy stall`);
 }

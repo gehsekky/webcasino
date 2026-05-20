@@ -19,19 +19,19 @@ export default function InsuranceForm({ originalBet, balance }: InsuranceFormPro
   return (
     <div className="rounded-xl bg-amber-950/50 ring-1 ring-amber-700/60 p-4 sm:p-5 space-y-3">
       <div>
-        <p className="text-xs uppercase tracking-[0.2em] text-amber-300 font-semibold">
-          Insurance
-        </p>
+        <p className="text-xs uppercase tracking-[0.2em] text-amber-300 font-semibold">Insurance</p>
         <p className="text-white text-sm mt-1">
-          Dealer shows an Ace. Bet up to half your wager that the dealer has a natural
-          blackjack. Pays 2:1.
+          Dealer shows an Ace. Bet up to half your wager that the dealer has a natural blackjack.
+          Pays 2:1.
         </p>
       </div>
 
       <fetcher.Form method="post" className="flex flex-col sm:flex-row sm:items-stretch gap-2">
         <input type="hidden" name="submit" value="take insurance" />
         <div className="flex flex-1 items-stretch rounded-lg overflow-hidden ring-1 ring-amber-700/60 focus-within:ring-2 focus-within:ring-amber-400 bg-amber-950">
-          <span aria-hidden="true" className="flex items-center px-3 text-amber-200 font-bold">$</span>
+          <span aria-hidden="true" className="flex items-center px-3 text-amber-200 font-bold">
+            $
+          </span>
           <input
             type="number"
             inputMode="numeric"

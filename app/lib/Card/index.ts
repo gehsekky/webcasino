@@ -1,18 +1,32 @@
 import type { Suit, Rank } from 'lib/gameState';
 
 class Card {
-  suit : Suit;
-  rank : Rank;
+  suit: Suit;
+  rank: Rank;
 
-  static suits : Suit[] = ['hearts', 'spades', 'clubs', 'diamonds'];
-  static ranks : Rank[] = ['Ace', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'Jack', 'Queen', 'King'];
+  static suits: Suit[] = ['hearts', 'spades', 'clubs', 'diamonds'];
+  static ranks: Rank[] = [
+    'Ace',
+    '2',
+    '3',
+    '4',
+    '5',
+    '6',
+    '7',
+    '8',
+    '9',
+    '10',
+    'Jack',
+    'Queen',
+    'King',
+  ];
 
-  constructor(suit : Suit, rank : Rank) {
+  constructor(suit: Suit, rank: Rank) {
     this.suit = suit;
     this.rank = rank;
   }
 
-  static getTotal(cards : Card[]) {
+  static getTotal(cards: Card[]) {
     let sum = 0;
     let hasAce = false;
     for (const card of cards) {
@@ -41,7 +55,7 @@ class Card {
     return sum;
   }
 
-  static has21(cards : Card[]) : boolean {
+  static has21(cards: Card[]): boolean {
     const total = Card.getTotal(cards);
     if (total === 21) {
       return true;
@@ -50,7 +64,7 @@ class Card {
     return false;
   }
 
-  static isBust(cards : Card[]) : boolean {
+  static isBust(cards: Card[]): boolean {
     const total = Card.getTotal(cards);
     if (total > 21) {
       return true;

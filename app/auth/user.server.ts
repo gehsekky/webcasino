@@ -29,9 +29,7 @@ export async function findOrCreateUserByOAuth(params: {
       return toSessionUser(existing.user);
     }
 
-    const userByEmail = email
-      ? await tx.user.findUnique({ where: { email } })
-      : null;
+    const userByEmail = email ? await tx.user.findUnique({ where: { email } }) : null;
 
     const user = userByEmail
       ? userByEmail

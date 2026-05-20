@@ -59,9 +59,7 @@ function buildProviders(): OAuthProvider[] {
   for (const factory of providerFactories) {
     const missing = factory.requiredEnv.filter((k) => !process.env[k]);
     if (missing.length > 0) {
-      console.warn(
-        `[auth] skipping provider '${factory.id}': missing env ${missing.join(', ')}`,
-      );
+      console.warn(`[auth] skipping provider '${factory.id}': missing env ${missing.join(', ')}`);
       continue;
     }
     active.push({ id: factory.id, label: factory.label, strategy: factory.build() });

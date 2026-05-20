@@ -28,12 +28,17 @@ export default function CasinoLobby({ viewerName, balance, activeHands }: Casino
       </header>
 
       <section aria-labelledby="areas-heading" className="max-w-5xl mx-auto">
-        <h2 id="areas-heading" className="text-center text-emerald-200 text-sm uppercase tracking-widest mb-6">
+        <h2
+          id="areas-heading"
+          className="text-center text-emerald-200 text-sm uppercase tracking-widest mb-6"
+        >
           Choose your area
         </h2>
         <div className="grid gap-4 sm:grid-cols-2">
           {AREAS.map((area) => {
-            const minEntry = Math.min(...area.games.filter((g) => g.available).map((g) => g.minimumBet));
+            const minEntry = Math.min(
+              ...area.games.filter((g) => g.available).map((g) => g.minimumBet),
+            );
             const canAfford = balance >= minEntry;
             return (
               <Link
@@ -50,7 +55,9 @@ export default function CasinoLobby({ viewerName, balance, activeHands }: Casino
                   {area.description}
                 </p>
                 <p className="mt-6 flex items-center justify-between text-sm">
-                  <span className={`uppercase tracking-wider font-semibold ${area.theme.accentText}`}>
+                  <span
+                    className={`uppercase tracking-wider font-semibold ${area.theme.accentText}`}
+                  >
                     {canAfford ? 'Enter →' : 'Balance too low'}
                   </span>
                   <span className="text-white/60 text-xs">
@@ -66,7 +73,10 @@ export default function CasinoLobby({ viewerName, balance, activeHands }: Casino
 
       {activeHands.length > 0 && (
         <section aria-labelledby="continue-heading" className="max-w-3xl mx-auto mt-12">
-          <h2 id="continue-heading" className="text-center text-emerald-200 text-sm uppercase tracking-widest mb-4">
+          <h2
+            id="continue-heading"
+            className="text-center text-emerald-200 text-sm uppercase tracking-widest mb-4"
+          >
             Continue a hand
           </h2>
           <ul className="space-y-2">

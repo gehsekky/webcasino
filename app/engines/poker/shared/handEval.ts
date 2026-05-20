@@ -29,7 +29,7 @@ export function evaluateHand(cards: CardData[]): HandRank {
   // E.g. for two pair K-K-Q-Q-7: [[2, 13], [2, 12], [1, 7]]
   const buckets: Array<[count: number, value: number]> = [...histogram.entries()]
     .map(([v, c]) => [c, v] as [number, number])
-    .sort((a, b) => (b[0] - a[0]) || (b[1] - a[1]));
+    .sort((a, b) => b[0] - a[0] || b[1] - a[1]);
 
   const isFlush = cards.every((c) => c.suit === cards[0].suit);
 
@@ -41,8 +41,11 @@ export function evaluateHand(cards: CardData[]): HandRank {
     if (distinct[4] - distinct[0] === 4) {
       straightHigh = distinct[4];
     } else if (
-      distinct[0] === 2 && distinct[1] === 3 &&
-      distinct[2] === 4 && distinct[3] === 5 && distinct[4] === 14
+      distinct[0] === 2 &&
+      distinct[1] === 3 &&
+      distinct[2] === 4 &&
+      distinct[3] === 5 &&
+      distinct[4] === 14
     ) {
       // Wheel A-2-3-4-5 — ace plays low, high card is the 5.
       straightHigh = 5;
@@ -72,7 +75,10 @@ export function evaluateHand(cards: CardData[]): HandRank {
     tb = [straightHigh, 0, 0, 0, 0];
   } else if (buckets[0][0] === 3) {
     // Trips: [trips value, kicker1, kicker2]
-    const kickers = buckets.slice(1).map(([, v]) => v).sort((a, b) => b - a);
+    const kickers = buckets
+      .slice(1)
+      .map(([, v]) => v)
+      .sort((a, b) => b - a);
     category = 'three_of_a_kind';
     tb = [buckets[0][1], kickers[0], kickers[1], 0, 0];
   } else if (buckets[0][0] === 2 && buckets[1][0] === 2) {
@@ -82,7 +88,10 @@ export function evaluateHand(cards: CardData[]): HandRank {
     tb = [buckets[0][1], buckets[1][1], buckets[2][1], 0, 0];
   } else if (buckets[0][0] === 2) {
     // One pair: [pair value, k1, k2, k3]
-    const kickers = buckets.slice(1).map(([, v]) => v).sort((a, b) => b - a);
+    const kickers = buckets
+      .slice(1)
+      .map(([, v]) => v)
+      .sort((a, b) => b - a);
     category = 'one_pair';
     tb = [buckets[0][1], kickers[0], kickers[1], kickers[2], 0];
   } else {

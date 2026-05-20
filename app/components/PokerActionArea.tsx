@@ -25,9 +25,7 @@ export default function PokerActionArea({ view, handSeatId }: PokerActionAreaPro
 
   if (!isViewerActing) {
     return (
-      <p className="text-center text-emerald-200/70 italic">
-        waiting for another seat to act…
-      </p>
+      <p className="text-center text-emerald-200/70 italic">waiting for another seat to act…</p>
     );
   }
 
@@ -65,7 +63,9 @@ function BetActionBar({
     <div className="rounded-xl bg-emerald-900/40 ring-1 ring-emerald-700/40 p-4 space-y-3">
       <div className="text-center text-sm">
         <span className="text-emerald-200/70 uppercase tracking-wider text-xs">Pot</span>{' '}
-        <span className="font-bold text-white tabular-nums">${view.pot.total.toLocaleString()}</span>
+        <span className="font-bold text-white tabular-nums">
+          ${view.pot.total.toLocaleString()}
+        </span>
         {owed > 0 && (
           <span className="ml-3 text-yellow-300">
             to call: <span className="font-bold tabular-nums">${owed.toLocaleString()}</span>
@@ -75,10 +75,22 @@ function BetActionBar({
 
       <div className="flex flex-wrap gap-2 justify-center">
         {legalKinds.has('fold') && (
-          <SingleButton submitValue="fold" label="Fold" variant="danger" disabled={submitting} fetcher={fetcher} />
+          <SingleButton
+            submitValue="fold"
+            label="Fold"
+            variant="danger"
+            disabled={submitting}
+            fetcher={fetcher}
+          />
         )}
         {legalKinds.has('check') && (
-          <SingleButton submitValue="check" label="Check" variant="info" disabled={submitting} fetcher={fetcher} />
+          <SingleButton
+            submitValue="check"
+            label="Check"
+            variant="info"
+            disabled={submitting}
+            fetcher={fetcher}
+          />
         )}
         {legalKinds.has('call') && (
           <SingleButton
@@ -163,11 +175,7 @@ function SingleButton({
   );
 }
 
-function DiscardPicker({
-  viewerSlot,
-}: {
-  viewerSlot: FiveCardDrawView['players'][number];
-}) {
+function DiscardPicker({ viewerSlot }: { viewerSlot: FiveCardDrawView['players'][number] }) {
   const fetcher = useFetcher();
   const submitting = fetcher.state !== 'idle';
   const [marked, setMarked] = useState<Set<number>>(new Set());
@@ -209,11 +217,7 @@ function DiscardPicker({
       <fetcher.Form method="post" className="flex justify-center">
         <input type="hidden" name="submit" value="discard" />
         <input type="hidden" name="indices" value={[...marked].sort((a, b) => a - b).join(',')} />
-        <button
-          type="submit"
-          disabled={submitting}
-          className={buttonClass({ variant: 'warning' })}
-        >
+        <button type="submit" disabled={submitting} className={buttonClass({ variant: 'warning' })}>
           {marked.size === 0 ? 'Stand pat' : `Discard ${marked.size}`}
         </button>
       </fetcher.Form>
@@ -227,9 +231,27 @@ function DiscardPicker({
 import type { CardData } from 'lib/gameState';
 function CardFace({ card }: { card: CardData }) {
   const suit = card.suit;
-  const glyph = suit === 'hearts' ? '♥' : suit === 'diamonds' ? '♦' : suit === 'spades' ? '♠' : suit === 'clubs' ? '♣' : '?';
+  const glyph =
+    suit === 'hearts'
+      ? '♥'
+      : suit === 'diamonds'
+        ? '♦'
+        : suit === 'spades'
+          ? '♠'
+          : suit === 'clubs'
+            ? '♣'
+            : '?';
   const color = suit === 'hearts' || suit === 'diamonds' ? 'text-red-600' : 'text-slate-900';
-  const rank = card.rank === 'Ace' ? 'A' : card.rank === 'King' ? 'K' : card.rank === 'Queen' ? 'Q' : card.rank === 'Jack' ? 'J' : card.rank;
+  const rank =
+    card.rank === 'Ace'
+      ? 'A'
+      : card.rank === 'King'
+        ? 'K'
+        : card.rank === 'Queen'
+          ? 'Q'
+          : card.rank === 'Jack'
+            ? 'J'
+            : card.rank;
   return (
     <div className="w-16 h-24 rounded-lg border border-slate-300 bg-white shadow-md flex flex-col justify-between p-2 select-none">
       <span className={`${color} font-bold leading-none text-lg`}>{rank}</span>

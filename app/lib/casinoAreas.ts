@@ -56,8 +56,7 @@ export const AREAS: CasinoArea[] = [
     id: 'low-rollers',
     name: 'Low Rollers Lounge',
     tagline: '$1 – $100',
-    description:
-      'Casual stakes, low pressure. Learn the games and warm up the bankroll.',
+    description: 'Casual stakes, low pressure. Learn the games and warm up the bankroll.',
     theme: {
       pageBg: 'from-emerald-950 via-emerald-900 to-emerald-950',
       cardBg: 'bg-emerald-900/50 ring-emerald-700/60',

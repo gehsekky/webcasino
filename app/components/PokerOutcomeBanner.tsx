@@ -9,11 +9,7 @@ type PokerOutcomeBannerProps = {
   area: { id: string; name: string } | null;
 };
 
-export default function PokerOutcomeBanner({
-  view,
-  handSeatId,
-  area,
-}: PokerOutcomeBannerProps) {
+export default function PokerOutcomeBanner({ view, handSeatId, area }: PokerOutcomeBannerProps) {
   if (view.phase !== 'settled') return null;
 
   const viewer = view.players.find((p) => p.id === handSeatId);
@@ -45,12 +41,9 @@ export default function PokerOutcomeBanner({
       <div className="mt-3 text-sm space-y-1">
         {winners.map((w) => (
           <p key={w.id} className="opacity-90">
-            {w.id === handSeatId ? 'You' : w.id.slice(0, 8)}{' '}
-            took{' '}
+            {w.id === handSeatId ? 'You' : w.id.slice(0, 8)} took{' '}
             <span className="font-bold tabular-nums">${w.winnings.toLocaleString()}</span>
-            {w.rank && (
-              <span className="opacity-75"> · {CATEGORY_LABEL[w.rank.category]}</span>
-            )}
+            {w.rank && <span className="opacity-75"> · {CATEGORY_LABEL[w.rank.category]}</span>}
           </p>
         ))}
       </div>

@@ -2,12 +2,24 @@ import { z } from 'zod';
 
 export const SUITS = ['hearts', 'spades', 'clubs', 'diamonds', 'hidden'] as const;
 export const RANKS = [
-  'Ace', '2', '3', '4', '5', '6', '7', '8', '9', '10',
-  'Jack', 'Queen', 'King', 'hidden',
+  'Ace',
+  '2',
+  '3',
+  '4',
+  '5',
+  '6',
+  '7',
+  '8',
+  '9',
+  '10',
+  'Jack',
+  'Queen',
+  'King',
+  'hidden',
 ] as const;
 
-export type Suit = typeof SUITS[number];
-export type Rank = typeof RANKS[number];
+export type Suit = (typeof SUITS)[number];
+export type Rank = (typeof RANKS)[number];
 
 export const CardSchema = z.object({
   suit: z.enum(SUITS),
@@ -85,8 +97,5 @@ export type BlackjackState = z.infer<typeof BlackjackStateSchema>;
  * Discriminated union over all game state shapes. Add a new variant when
  * adding a new engine (e.g. PokerStateSchema, SlotsStateSchema).
  */
-export const GameStateSchema = z.discriminatedUnion('type', [
-  BlackjackStateSchema,
-]);
+export const GameStateSchema = z.discriminatedUnion('type', [BlackjackStateSchema]);
 export type GameState = z.infer<typeof GameStateSchema>;
-

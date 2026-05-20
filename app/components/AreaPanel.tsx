@@ -43,15 +43,7 @@ export default function AreaPanel({ area, balance }: AreaPanelProps) {
   );
 }
 
-function GameCard({
-  game,
-  area,
-  balance,
-}: {
-  game: AreaGame;
-  area: CasinoArea;
-  balance: number;
-}) {
+function GameCard({ game, area, balance }: { game: AreaGame; area: CasinoArea; balance: number }) {
   const fetcher = useFetcher();
   const submitting = fetcher.state !== 'idle';
   const canAfford = balance >= game.minimumBet;

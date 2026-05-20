@@ -2,14 +2,14 @@ import { randomInt } from 'node:crypto';
 import Card from 'lib/Card';
 
 class Deck {
-  cards : Card[];
+  cards: Card[];
 
   constructor() {
     this.cards = [];
     this.initialize();
   }
 
-  static createNewDeckFromCards(cards : Card[]) {
+  static createNewDeckFromCards(cards: Card[]) {
     const deck = new Deck();
     deck.cards = cards;
     return deck;

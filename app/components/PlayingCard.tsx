@@ -65,7 +65,9 @@ export default function PlayingCard({ card, small = false }: PlayingCardProps) {
     >
       <span className={`${color} ${sizing.rank} font-bold leading-none`}>{rank}</span>
       <span className={`${color} ${sizing.glyph} text-center leading-none`}>{glyph}</span>
-      <span className={`${color} ${sizing.rank} font-bold leading-none self-end rotate-180`}>{rank}</span>
+      <span className={`${color} ${sizing.rank} font-bold leading-none self-end rotate-180`}>
+        {rank}
+      </span>
     </div>
   );
 }

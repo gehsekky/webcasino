@@ -17,20 +17,19 @@ export default function DealerSection({ cards, revealed }: DealerSectionProps) {
       className="rounded-xl bg-emerald-900/50 ring-1 ring-emerald-700/50 p-4 sm:p-6"
     >
       <header className="flex items-baseline justify-between mb-4">
-        <h2 id="dealer-heading" className="text-sm font-semibold uppercase tracking-wider text-emerald-200">
+        <h2
+          id="dealer-heading"
+          className="text-sm font-semibold uppercase tracking-wider text-emerald-200"
+        >
           Dealer
         </h2>
-        {showTotal && (
-          <span className="text-lg font-bold text-white tabular-nums">{total}</span>
-        )}
+        {showTotal && <span className="text-lg font-bold text-white tabular-nums">{total}</span>}
       </header>
       <div className="flex flex-wrap gap-2 min-h-[7rem]">
         {cards.length === 0 ? (
           <p className="text-emerald-200/60 italic self-center">waiting to deal…</p>
         ) : (
-          cards.map((card, i) => (
-            <PlayingCard key={`${card.suit}-${card.rank}-${i}`} card={card} />
-          ))
+          cards.map((card, i) => <PlayingCard key={`${card.suit}-${card.rank}-${i}`} card={card} />)
         )}
       </div>
     </section>

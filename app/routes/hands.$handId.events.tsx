@@ -135,7 +135,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
         closed = true;
         clearInterval(keepalive);
         unsubscribe();
-        try { controller.close(); } catch { /* already closed */ }
+        try {
+          controller.close();
+        } catch {
+          /* already closed */
+        }
       };
       request.signal.addEventListener('abort', onAbort);
     },
@@ -145,7 +149,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
-      'Connection': 'keep-alive',
+      Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     },
   });

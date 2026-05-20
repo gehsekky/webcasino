@@ -3,10 +3,7 @@ import type { Prisma, user } from '@prisma/client';
 import { prisma, type PrismaTransactionClient } from 'db.server';
 import { recordMoneyTransaction } from './moneyTransaction.server';
 import { fiveCardDrawEngine } from 'engines/poker/fiveCardDraw/engine';
-import type {
-  FiveCardDrawAction,
-  FiveCardDrawState,
-} from 'engines/poker/fiveCardDraw/types';
+import type { FiveCardDrawAction, FiveCardDrawState } from 'engines/poker/fiveCardDraw/types';
 import { defaultRng } from 'engines/rng';
 import { appendHandEvent, HAND_INITIALIZED } from 'lib/handEvents';
 import { broadcastBus, type BroadcastedHandEvent } from 'lib/broadcastBus.server';
@@ -42,7 +39,6 @@ export type PokerTableConfig = {
   minimumBuyIn: number;
   maximumBuyIn: number;
 };
-
 
 /**
  * Provision a fresh poker table for a single human, filling the
@@ -164,9 +160,7 @@ export async function createNewPokerHand(params: {
     // Debit the ante from each user (atomic — AI users have huge balances).
     for (const id of playerIds) {
       const userId =
-        id === humanHandSeatId
-          ? params.user.id
-          : aiUsers[aiHandSeatIds.indexOf(id)].id;
+        id === humanHandSeatId ? params.user.id : aiUsers[aiHandSeatIds.indexOf(id)].id;
       await recordMoneyTransaction(
         {
           userId,
@@ -232,7 +226,10 @@ export async function submitPokerAction(params: {
       throw new Error('pokerEngine: not your turn');
     }
 
-    const userMap = await buildUserMap(tx, state.players.map((p) => p.id));
+    const userMap = await buildUserMap(
+      tx,
+      state.players.map((p) => p.id),
+    );
 
     // 1. Apply the human action.
     const beforeHuman = state;
@@ -254,11 +251,7 @@ export async function submitPokerAction(params: {
     // 2. Cascade AI turns while it's a bot's turn.
     const isAI = (slotId: string) => userMap.get(slotId)?.is_ai === true;
     let cursor = state;
-    while (
-      !fiveCardDrawEngine.isTerminal(cursor) &&
-      cursor.toAct !== null &&
-      isAI(cursor.toAct)
-    ) {
+    while (!fiveCardDrawEngine.isTerminal(cursor) && cursor.toAct !== null && isAI(cursor.toAct)) {
       const acting = cursor.toAct;
       const beforeAI = cursor;
       const aiAction = fiveCardDrawEngine.aiAction!(cursor, acting, defaultRng);

@@ -86,9 +86,11 @@ export default function HandView({
             />
           )}
 
-          {view.phase === 'insurance_offered' && primarySlot && primarySlot.insuranceBet === null && (
-            <InsuranceForm originalBet={primarySlot.bet} balance={viewerBalance} />
-          )}
+          {view.phase === 'insurance_offered' &&
+            primarySlot &&
+            primarySlot.insuranceBet === null && (
+              <InsuranceForm originalBet={primarySlot.bet} balance={viewerBalance} />
+            )}
 
           {view.phase === 'insurance_offered' && primarySlot?.insuranceBet !== null && (
             <p className="text-center text-emerald-200/80 italic">

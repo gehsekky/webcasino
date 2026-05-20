@@ -203,7 +203,10 @@ export async function submitAction(params: {
 
     // Build a slotId → user map covering every hand_seat row at the
     // table (primary slots only — split siblings resolve via parentSlotId).
-    const userMap = await buildUserMap(tx, prevState.players.map((p) => p.id));
+    const userMap = await buildUserMap(
+      tx,
+      prevState.players.map((p) => p.id),
+    );
 
     // After a split, the viewer owns multiple slots; per-turn actions
     // (hit/stay/double/surrender/split) target whichever of the viewer's
@@ -362,11 +365,7 @@ function ownerHandSeatId(state: BlackjackState, slotId: string): string {
   return slot?.parentSlotId ?? slotId;
 }
 
-function isAISlot(
-  slotId: string,
-  state: BlackjackState,
-  userMap: Map<string, SlotOwner>,
-): boolean {
+function isAISlot(slotId: string, state: BlackjackState, userMap: Map<string, SlotOwner>): boolean {
   return ownerOf(slotId, state, userMap).is_ai;
 }
 
@@ -404,11 +403,7 @@ async function applyStepDiff(
     }
 
     // Insurance taken for the first time.
-    if (
-      nextSlot.insuranceBet !== null &&
-      nextSlot.insuranceBet > 0 &&
-      prevIns === null
-    ) {
+    if (nextSlot.insuranceBet !== null && nextSlot.insuranceBet > 0 && prevIns === null) {
       const owner = ownerOf(nextSlot.id, next, userMap);
       await recordMoneyTransaction(
         {

@@ -60,7 +60,11 @@ describe('fiveCardDrawEngine.initialState', () => {
 
   it('rejects fewer than 2 players', () => {
     expect(() =>
-      fiveCardDrawEngine.initialState({ ante: 5, minBet: 10, stacks: { only: 100 } }, ['only'], detRng()),
+      fiveCardDrawEngine.initialState(
+        { ante: 5, minBet: 10, stacks: { only: 100 } },
+        ['only'],
+        detRng(),
+      ),
     ).toThrow(/at least 2/);
   });
 
@@ -143,12 +147,12 @@ describe('fiveCardDrawEngine — full hand played to showdown', () => {
     s = apply(s, 'p1', { kind: 'check', playerId: 'p1' });
     s = apply(s, 'p2', { kind: 'check', playerId: 'p2' });
     s = apply(s, 'p3', { kind: 'check', playerId: 'p3' });
-    expect(() =>
-      apply(s, 'p1', { kind: 'discard', playerId: 'p1', indices: [0, 0] }),
-    ).toThrow(/duplicate/);
-    expect(() =>
-      apply(s, 'p1', { kind: 'discard', playerId: 'p1', indices: [5] }),
-    ).toThrow(/invalid discard index/);
+    expect(() => apply(s, 'p1', { kind: 'discard', playerId: 'p1', indices: [0, 0] })).toThrow(
+      /duplicate/,
+    );
+    expect(() => apply(s, 'p1', { kind: 'discard', playerId: 'p1', indices: [5] })).toThrow(
+      /invalid discard index/,
+    );
   });
 });
 
@@ -184,18 +188,16 @@ describe('fiveCardDrawEngine — betting mechanics', () => {
   it('rejects a check when there is a bet to call', () => {
     let s = freshState();
     s = apply(s, 'p1', { kind: 'bet', playerId: 'p1', amount: 10 });
-    expect(() =>
-      apply(s, 'p2', { kind: 'check', playerId: 'p2' }),
-    ).toThrow(/check illegal/);
+    expect(() => apply(s, 'p2', { kind: 'check', playerId: 'p2' })).toThrow(/check illegal/);
   });
 
   it('rejects a raise that does not meet the minimum increment', () => {
     let s = freshState();
     s = apply(s, 'p1', { kind: 'bet', playerId: 'p1', amount: 20 });
     // minRaise after a bet of 20 is 20 → raise target must be ≥ 40.
-    expect(() =>
-      apply(s, 'p2', { kind: 'raise', playerId: 'p2', amount: 30 }),
-    ).toThrow(/below minimum/);
+    expect(() => apply(s, 'p2', { kind: 'raise', playerId: 'p2', amount: 30 })).toThrow(
+      /below minimum/,
+    );
   });
 
   it('marks a player all_in when a call uses every chip', () => {
@@ -214,7 +216,7 @@ describe('fiveCardDrawEngine — betting mechanics', () => {
 });
 
 describe('fiveCardDrawEngine.viewFor', () => {
-  it('masks other players\' hole cards but shows the viewer\'s own', () => {
+  it("masks other players' hole cards but shows the viewer's own", () => {
     const s = freshState();
     const v1 = fiveCardDrawEngine.viewFor(s, 'p1');
     const ownP1 = v1.players.find((p) => p.id === 'p1')!;

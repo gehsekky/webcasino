@@ -19,10 +19,26 @@ import type { user } from '@prisma/client';
  */
 
 const AI_NAMES = [
-  'Bot-Alpha', 'Bot-Bravo', 'Bot-Charlie', 'Bot-Delta', 'Bot-Echo',
-  'Bot-Foxtrot', 'Bot-Golf', 'Bot-Hotel', 'Bot-India', 'Bot-Juliet',
-  'Bot-Kilo', 'Bot-Lima', 'Bot-Mike', 'Bot-November', 'Bot-Oscar',
-  'Bot-Papa', 'Bot-Quebec', 'Bot-Romeo', 'Bot-Sierra', 'Bot-Tango',
+  'Bot-Alpha',
+  'Bot-Bravo',
+  'Bot-Charlie',
+  'Bot-Delta',
+  'Bot-Echo',
+  'Bot-Foxtrot',
+  'Bot-Golf',
+  'Bot-Hotel',
+  'Bot-India',
+  'Bot-Juliet',
+  'Bot-Kilo',
+  'Bot-Lima',
+  'Bot-Mike',
+  'Bot-November',
+  'Bot-Oscar',
+  'Bot-Papa',
+  'Bot-Quebec',
+  'Bot-Romeo',
+  'Bot-Sierra',
+  'Bot-Tango',
 ] as const;
 
 const AI_STARTING_BALANCE = 1_000_000;

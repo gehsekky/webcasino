@@ -5,10 +5,12 @@ import Card from './index';
 const RANKS = Card.ranks;
 const SUITS = Card.suits;
 
-const cardArb = fc.record({
-  suit: fc.constantFrom(...SUITS),
-  rank: fc.constantFrom(...RANKS),
-}).map(({ suit, rank }) => new Card(suit, rank));
+const cardArb = fc
+  .record({
+    suit: fc.constantFrom(...SUITS),
+    rank: fc.constantFrom(...RANKS),
+  })
+  .map(({ suit, rank }) => new Card(suit, rank));
 
 describe('Card.getTotal', () => {
   it('sums numeric cards', () => {
@@ -22,7 +24,11 @@ describe('Card.getTotal', () => {
   });
 
   it('counts face cards as 10', () => {
-    const hand = [new Card('hearts', 'Jack'), new Card('spades', 'Queen'), new Card('clubs', 'King')];
+    const hand = [
+      new Card('hearts', 'Jack'),
+      new Card('spades', 'Queen'),
+      new Card('clubs', 'King'),
+    ];
     expect(Card.getTotal(hand)).toBe(30);
   });
 
@@ -58,15 +64,19 @@ describe('Card.getTotal', () => {
 
   it('property: a hand of all-numeric cards equals the sum of their ranks', () => {
     const numericRanks = ['2', '3', '4', '5', '6', '7', '8', '9', '10'] as const;
-    const numericCardArb = fc.record({
-      suit: fc.constantFrom(...SUITS),
-      rank: fc.constantFrom(...numericRanks),
-    }).map(({ suit, rank }) => new Card(suit, rank));
+    const numericCardArb = fc
+      .record({
+        suit: fc.constantFrom(...SUITS),
+        rank: fc.constantFrom(...numericRanks),
+      })
+      .map(({ suit, rank }) => new Card(suit, rank));
 
-    fc.assert(fc.property(fc.array(numericCardArb, { minLength: 1, maxLength: 5 }), (hand) => {
-      const expected = hand.reduce((s, c) => s + parseInt(c.rank, 10), 0);
-      expect(Card.getTotal(hand)).toBe(expected);
-    }));
+    fc.assert(
+      fc.property(fc.array(numericCardArb, { minLength: 1, maxLength: 5 }), (hand) => {
+        const expected = hand.reduce((s, c) => s + parseInt(c.rank, 10), 0);
+        expect(Card.getTotal(hand)).toBe(expected);
+      }),
+    );
   });
 });
 
@@ -77,7 +87,9 @@ describe('Card.has21', () => {
 
   it('returns false for anything else', () => {
     expect(Card.has21([new Card('hearts', '5'), new Card('spades', '5')])).toBe(false);
-    expect(Card.has21([new Card('hearts', 'King'), new Card('spades', 'King'), new Card('clubs', '5')])).toBe(false);
+    expect(
+      Card.has21([new Card('hearts', 'King'), new Card('spades', 'King'), new Card('clubs', '5')]),
+    ).toBe(false);
   });
 });
 
@@ -93,8 +105,10 @@ describe('Card.isBust', () => {
   });
 
   it('property: isBust iff getTotal > 21', () => {
-    fc.assert(fc.property(fc.array(cardArb, { minLength: 1, maxLength: 8 }), (hand) => {
-      expect(Card.isBust(hand)).toBe(Card.getTotal(hand) > 21);
-    }));
+    fc.assert(
+      fc.property(fc.array(cardArb, { minLength: 1, maxLength: 8 }), (hand) => {
+        expect(Card.isBust(hand)).toBe(Card.getTotal(hand) > 21);
+      }),
+    );
   });
 });

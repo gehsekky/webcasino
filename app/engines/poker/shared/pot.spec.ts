@@ -7,29 +7,43 @@ import type { CardData } from 'lib/gameState';
 const c = (suit: CardData['suit'], rank: CardData['rank']): CardData => ({ suit, rank });
 
 function hand(notation: string): CardData[] {
-  return notation.trim().split(/\s+/).map((token) => {
-    const suit = (() => {
-      switch (token.slice(-1)) {
-        case 'h': return 'hearts' as const;
-        case 'd': return 'diamonds' as const;
-        case 's': return 'spades' as const;
-        case 'c': return 'clubs' as const;
-        default: throw new Error(`bad suit in ${token}`);
-      }
-    })();
-    const rankPart = token.slice(0, -1);
-    const rank = (() => {
-      switch (rankPart) {
-        case 'A': return 'Ace' as const;
-        case 'K': return 'King' as const;
-        case 'Q': return 'Queen' as const;
-        case 'J': return 'Jack' as const;
-        case '10': return '10' as const;
-        default: return rankPart as CardData['rank'];
-      }
-    })();
-    return c(suit, rank);
-  });
+  return notation
+    .trim()
+    .split(/\s+/)
+    .map((token) => {
+      const suit = (() => {
+        switch (token.slice(-1)) {
+          case 'h':
+            return 'hearts' as const;
+          case 'd':
+            return 'diamonds' as const;
+          case 's':
+            return 'spades' as const;
+          case 'c':
+            return 'clubs' as const;
+          default:
+            throw new Error(`bad suit in ${token}`);
+        }
+      })();
+      const rankPart = token.slice(0, -1);
+      const rank = (() => {
+        switch (rankPart) {
+          case 'A':
+            return 'Ace' as const;
+          case 'K':
+            return 'King' as const;
+          case 'Q':
+            return 'Queen' as const;
+          case 'J':
+            return 'Jack' as const;
+          case '10':
+            return '10' as const;
+          default:
+            return rankPart as CardData['rank'];
+        }
+      })();
+      return c(suit, rank);
+    });
 }
 
 describe('buildPots', () => {
@@ -101,7 +115,10 @@ describe('distributePots', () => {
   it('single pot, single winner', () => {
     const aRank = evaluateHand(hand('Kh Kd Qs Qc 7d')); // two pair
     const bRank = evaluateHand(hand('Ah Kd 9s 4c 2h')); // high card
-    const ranks = new Map<string, HandRank>([['a', aRank], ['b', bRank]]);
+    const ranks = new Map<string, HandRank>([
+      ['a', aRank],
+      ['b', bRank],
+    ]);
     const pots = [{ amount: 100, eligible: ['a', 'b'] }];
     const awards = distributePots(pots, ranks, ['a', 'b']);
     expect(awards).toEqual([{ potIndex: 0, id: 'a', amount: 100, rank: aRank }]);
@@ -109,7 +126,10 @@ describe('distributePots', () => {
 
   it('tie splits evenly', () => {
     const r = evaluateHand(hand('Kh Kd Qs Qc 7d'));
-    const ranks = new Map<string, HandRank>([['a', r], ['b', r]]);
+    const ranks = new Map<string, HandRank>([
+      ['a', r],
+      ['b', r],
+    ]);
     const pots = [{ amount: 100, eligible: ['a', 'b'] }];
     const awards = distributePots(pots, ranks, ['a', 'b']);
     expect(awards).toHaveLength(2);
@@ -120,7 +140,10 @@ describe('distributePots', () => {
 
   it('odd-chip remainder goes to first in seat order', () => {
     const r = evaluateHand(hand('Kh Kd Qs Qc 7d'));
-    const ranks = new Map<string, HandRank>([['a', r], ['b', r]]);
+    const ranks = new Map<string, HandRank>([
+      ['a', r],
+      ['b', r],
+    ]);
     const pots = [{ amount: 101, eligible: ['a', 'b'] }];
     const awards = distributePots(pots, ranks, ['a', 'b']);
     expect(awards[0]).toMatchObject({ id: 'a', amount: 51 });

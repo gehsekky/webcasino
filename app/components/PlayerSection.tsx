@@ -62,7 +62,9 @@ export default function PlayerSection({
           className="text-sm font-semibold uppercase tracking-wider text-emerald-200"
         >
           {displayName}
-          {isViewer && <span className="ml-2 text-xs font-normal lowercase text-emerald-300">(you)</span>}
+          {isViewer && (
+            <span className="ml-2 text-xs font-normal lowercase text-emerald-300">(you)</span>
+          )}
           {handLabel && (
             <span className="ml-2 text-xs font-semibold uppercase tracking-wide text-yellow-300">
               · {handLabel}
@@ -70,7 +72,9 @@ export default function PlayerSection({
           )}
         </h2>
         <div className="flex items-center gap-2">
-          <span className={`text-xs font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 ${statusClass}`}>
+          <span
+            className={`text-xs font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 ${statusClass}`}
+          >
             {statusLabel}
           </span>
           {total !== null && (
@@ -90,10 +94,14 @@ export default function PlayerSection({
       <footer className="mt-3 flex items-center justify-between text-sm">
         <span className="text-emerald-200/80">
           bet: <span className="font-semibold text-white tabular-nums">${player.bet}</span>
-          {player.doubled && <span className="ml-2 text-xs uppercase tracking-wide text-yellow-300">doubled</span>}
+          {player.doubled && (
+            <span className="ml-2 text-xs uppercase tracking-wide text-yellow-300">doubled</span>
+          )}
         </span>
         {isToAct && (
-          <span className="text-yellow-300 font-semibold uppercase tracking-wide text-xs">your turn</span>
+          <span className="text-yellow-300 font-semibold uppercase tracking-wide text-xs">
+            your turn
+          </span>
         )}
       </footer>
     </section>

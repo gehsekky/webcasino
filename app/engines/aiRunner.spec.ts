@@ -43,12 +43,7 @@ describe('runAiCascade — mixed humans and AI', () => {
     const isAI = (id: string) => id !== 'a';
 
     // Human action 1: a checks.
-    state = fiveCardDrawEngine.applyAction(
-      state,
-      'a',
-      { kind: 'check', playerId: 'a' },
-      noopRng(),
-    );
+    state = fiveCardDrawEngine.applyAction(state, 'a', { kind: 'check', playerId: 'a' }, noopRng());
     // Now toAct should be 'b' (AI). Cascade: b checks, c checks → round
     // closes → phase becomes 'draw' → toAct is 'a' again (first active).
     const result = runAiCascade({

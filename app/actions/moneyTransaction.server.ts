@@ -78,10 +78,7 @@ export const recordMoneyTransaction = async (
  * Returns the current balance for a user. Reads the materialized `user.money`
  * column, which is kept in sync by `recordMoneyTransaction`.
  */
-export const getBalance = async (
-  userId: string,
-  tx?: PrismaTransactionClient,
-): Promise<number> => {
+export const getBalance = async (userId: string, tx?: PrismaTransactionClient): Promise<number> => {
   if (!tx) {
     tx = prisma;
   }
@@ -91,4 +88,3 @@ export const getBalance = async (
   }
   return u.money;
 };
-

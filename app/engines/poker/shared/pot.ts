@@ -102,7 +102,10 @@ export function distributePots(
     // Pick the best ranked among eligible. If an eligible has no rank
     // (e.g. only one left after others folded), they win uncontested.
     const ranked = pot.eligible.map((id) => ({ id, rank: handRanks.get(id) ?? null }));
-    const haveRanks = ranked.filter((r) => r.rank !== null) as Array<{ id: string; rank: HandRank }>;
+    const haveRanks = ranked.filter((r) => r.rank !== null) as Array<{
+      id: string;
+      rank: HandRank;
+    }>;
 
     let winners: { id: string; rank: HandRank | null }[];
     if (haveRanks.length === 0) {

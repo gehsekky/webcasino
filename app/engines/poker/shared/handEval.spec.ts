@@ -7,30 +7,44 @@ const c = (suit: CardData['suit'], rank: CardData['rank']): CardData => ({ suit,
 
 /** Quick-build helper: parse strings like "Ah Kh Qh Jh 10h" into CardData[]. */
 function hand(notation: string): CardData[] {
-  return notation.trim().split(/\s+/).map((token) => {
-    const suit = (() => {
-      const s = token.slice(-1);
-      switch (s) {
-        case 'h': return 'hearts' as const;
-        case 'd': return 'diamonds' as const;
-        case 's': return 'spades' as const;
-        case 'c': return 'clubs' as const;
-        default: throw new Error(`hand: bad suit '${s}' in '${token}'`);
-      }
-    })();
-    const rankPart = token.slice(0, -1);
-    const rank = (() => {
-      switch (rankPart) {
-        case 'A': return 'Ace' as const;
-        case 'K': return 'King' as const;
-        case 'Q': return 'Queen' as const;
-        case 'J': return 'Jack' as const;
-        case '10': return '10' as const;
-        default: return rankPart as CardData['rank'];
-      }
-    })();
-    return c(suit, rank);
-  });
+  return notation
+    .trim()
+    .split(/\s+/)
+    .map((token) => {
+      const suit = (() => {
+        const s = token.slice(-1);
+        switch (s) {
+          case 'h':
+            return 'hearts' as const;
+          case 'd':
+            return 'diamonds' as const;
+          case 's':
+            return 'spades' as const;
+          case 'c':
+            return 'clubs' as const;
+          default:
+            throw new Error(`hand: bad suit '${s}' in '${token}'`);
+        }
+      })();
+      const rankPart = token.slice(0, -1);
+      const rank = (() => {
+        switch (rankPart) {
+          case 'A':
+            return 'Ace' as const;
+          case 'K':
+            return 'King' as const;
+          case 'Q':
+            return 'Queen' as const;
+          case 'J':
+            return 'Jack' as const;
+          case '10':
+            return '10' as const;
+          default:
+            return rankPart as CardData['rank'];
+        }
+      })();
+      return c(suit, rank);
+    });
 }
 
 describe('evaluateHand — category detection', () => {

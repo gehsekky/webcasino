@@ -11,7 +11,19 @@ import Card from 'lib/Card';
 
 const SUITS: Suit[] = ['hearts', 'spades', 'clubs', 'diamonds'];
 const RANKS: Rank[] = [
-  'Ace', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'Jack', 'Queen', 'King',
+  'Ace',
+  '2',
+  '3',
+  '4',
+  '5',
+  '6',
+  '7',
+  '8',
+  '9',
+  '10',
+  'Jack',
+  'Queen',
+  'King',
 ];
 
 function freshDeck(): CardData[] {
@@ -121,7 +133,12 @@ function deepClone(state: BlackjackState): BlackjackState {
   };
 }
 
-export const blackjackEngine: GameEngine<BlackjackState, BlackjackAction, BlackjackView, BlackjackConfig> = {
+export const blackjackEngine: GameEngine<
+  BlackjackState,
+  BlackjackAction,
+  BlackjackView,
+  BlackjackConfig
+> = {
   id: 'blackjack',
 
   initialState(config, playerIds, rng) {
@@ -185,11 +202,7 @@ export const blackjackEngine: GameEngine<BlackjackState, BlackjackAction, Blackj
         // Split: same-rank pair on the first two cards. Resplits disabled
         // for now (parentSlotId / hasSplitSibling guards); standard
         // re-split rules can come back as a config flag later.
-        if (
-          p.cards[0].rank === p.cards[1].rank &&
-          !p.parentSlotId &&
-          !hasSplitSibling
-        ) {
+        if (p.cards[0].rank === p.cards[1].rank && !p.parentSlotId && !hasSplitSibling) {
           acts.push({ kind: 'split', playerId: who });
         }
         // Surrender is only legal pre-action on a fresh, never-split hand.
@@ -565,9 +578,7 @@ function blackjackAiAction(state: BlackjackState, slotId: string): BlackjackActi
     const upCard = state.dealerHand[1];
     const dealerValue = upCard ? handTotal([upCard]) : 0;
     const dealerWeak = dealerValue >= 2 && dealerValue <= 6;
-    return dealerWeak
-      ? { kind: 'stay', playerId: slotId }
-      : { kind: 'hit', playerId: slotId };
+    return dealerWeak ? { kind: 'stay', playerId: slotId } : { kind: 'hit', playerId: slotId };
   }
   throw new Error(`blackjack AI: cannot act in phase ${state.phase}`);
 }
@@ -578,8 +589,7 @@ function playDealer(state: BlackjackState): BlackjackState {
   for (;;) {
     const detail = handTotalDetail(state.dealerHand);
     const shouldHit =
-      detail.total < 17 ||
-      (detail.total === 17 && detail.isSoft && state.config.dealerHitsSoft17);
+      detail.total < 17 || (detail.total === 17 && detail.isSoft && state.config.dealerHitsSoft17);
     if (!shouldHit) break;
     state.dealerHand.push(draw(state.deck));
   }
@@ -587,7 +597,14 @@ function playDealer(state: BlackjackState): BlackjackState {
   const dealerBusted = dealerTotal > 21;
 
   for (const p of state.players) {
-    if (p.status === 'busted' || p.status === 'surrendered' || p.status === 'lost' || p.status === 'pushed' || p.status === 'won' || p.status === 'blackjack') {
+    if (
+      p.status === 'busted' ||
+      p.status === 'surrendered' ||
+      p.status === 'lost' ||
+      p.status === 'pushed' ||
+      p.status === 'won' ||
+      p.status === 'blackjack'
+    ) {
       // Already settled.
       continue;
     }

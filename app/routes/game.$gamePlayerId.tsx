@@ -1,20 +1,9 @@
-import {
-  type ActionFunctionArgs,
-  type LoaderFunctionArgs,
-  json,
-  redirect,
-} from '@remix-run/node';
+import { type ActionFunctionArgs, type LoaderFunctionArgs, json, redirect } from '@remix-run/node';
 import { useLoaderData } from '@remix-run/react';
 import { prisma } from 'db.server';
 import { requireUser, requireSeat } from 'auth/guards.server';
-import {
-  submitAction,
-  parseBlackjackActionFromForm,
-} from 'actions/handEngine.server';
-import {
-  submitPokerAction,
-  parsePokerActionFromForm,
-} from 'actions/pokerEngine.server';
+import { submitAction, parseBlackjackActionFromForm } from 'actions/handEngine.server';
+import { submitPokerAction, parsePokerActionFromForm } from 'actions/pokerEngine.server';
 import { BlackjackStateSchema } from 'lib/gameState';
 import { blackjackEngine } from 'engines/blackjack/engine';
 import type { BlackjackView } from 'engines/blackjack/types';

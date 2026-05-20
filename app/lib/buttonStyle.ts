@@ -28,11 +28,13 @@ const VARIANT = {
 export type ButtonVariant = keyof typeof VARIANT;
 export type ButtonSize = keyof typeof SIZE;
 
-export function buttonClass(opts: {
-  variant?: ButtonVariant;
-  size?: ButtonSize;
-  className?: string;
-} = {}): string {
+export function buttonClass(
+  opts: {
+    variant?: ButtonVariant;
+    size?: ButtonSize;
+    className?: string;
+  } = {},
+): string {
   const v = opts.variant ?? 'primary';
   const s = opts.size ?? 'md';
   return [BASE, VARIANT[v], SIZE[s], opts.className ?? ''].filter(Boolean).join(' ');

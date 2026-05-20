@@ -68,7 +68,9 @@ export default function PokerSeat({ player, isViewer, isToAct, label }: PokerSea
         </div>
         <div className="text-right">
           <p className="text-emerald-200/70 text-xs uppercase tracking-wide">In pot</p>
-          <p className="font-semibold text-white tabular-nums">${player.totalBet.toLocaleString()}</p>
+          <p className="font-semibold text-white tabular-nums">
+            ${player.totalBet.toLocaleString()}
+          </p>
         </div>
       </footer>
 

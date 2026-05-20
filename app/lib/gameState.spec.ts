@@ -3,7 +3,10 @@ import { CardSchema, BlackjackStateSchema, GameStateSchema } from './gameState';
 
 describe('CardSchema', () => {
   it('accepts a valid card', () => {
-    expect(CardSchema.parse({ suit: 'hearts', rank: 'Ace' })).toEqual({ suit: 'hearts', rank: 'Ace' });
+    expect(CardSchema.parse({ suit: 'hearts', rank: 'Ace' })).toEqual({
+      suit: 'hearts',
+      rank: 'Ace',
+    });
   });
 
   it('accepts hidden masking', () => {
@@ -44,11 +47,15 @@ describe('BlackjackStateSchema', () => {
   });
 
   it('rejects negative bet limits', () => {
-    expect(() => BlackjackStateSchema.parse({ ...valid, config: { minimumBet: -1, maximumBet: 100 } })).toThrow();
+    expect(() =>
+      BlackjackStateSchema.parse({ ...valid, config: { minimumBet: -1, maximumBet: 100 } }),
+    ).toThrow();
   });
 
   it('rejects non-integer bet limits', () => {
-    expect(() => BlackjackStateSchema.parse({ ...valid, config: { minimumBet: 1.5, maximumBet: 100 } })).toThrow();
+    expect(() =>
+      BlackjackStateSchema.parse({ ...valid, config: { minimumBet: 1.5, maximumBet: 100 } }),
+    ).toThrow();
   });
 
   it('rejects malformed card in deck', () => {

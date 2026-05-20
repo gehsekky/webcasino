@@ -100,7 +100,9 @@ describe('applyBettingAction — single-table flow', () => {
     let r = startRound({ actors: [actor('a'), actor('b'), actor('c')], startingActorIdx: 0 });
     r = applyBettingAction(r, 'a', { kind: 'bet', amount: 10 });
     // minRaise after a bet of 10 is 10 → raise target must be ≥ 20.
-    expect(() => applyBettingAction(r, 'b', { kind: 'raise', amount: 15 })).toThrow(/below minimum/);
+    expect(() => applyBettingAction(r, 'b', { kind: 'raise', amount: 15 })).toThrow(
+      /below minimum/,
+    );
   });
 
   it('marks actor all_in when call uses every chip', () => {
@@ -125,7 +127,7 @@ describe('applyBettingAction — single-table flow', () => {
     expect(legalActionsFor(r, 'b').sort()).toEqual(['call', 'fold', 'raise']);
   });
 
-  it('roundPotContribution sums everyone\'s currentBet', () => {
+  it("roundPotContribution sums everyone's currentBet", () => {
     let r = startRound({ actors: [actor('a'), actor('b'), actor('c')], startingActorIdx: 0 });
     r = applyBettingAction(r, 'a', { kind: 'bet', amount: 10 });
     r = applyBettingAction(r, 'b', { kind: 'call' });
@@ -134,7 +136,7 @@ describe('applyBettingAction — single-table flow', () => {
   });
 });
 
-describe('startRound with opening bet (e.g. Hold\'em blinds)', () => {
+describe("startRound with opening bet (e.g. Hold'em blinds)", () => {
   it('respects currentBet/minRaise passed in', () => {
     const sb = { ...actor('sb'), currentBet: 5, totalBet: 5, chips: 95 };
     const bb = { ...actor('bb'), currentBet: 10, totalBet: 10, chips: 90 };

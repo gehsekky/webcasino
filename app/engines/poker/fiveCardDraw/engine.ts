@@ -13,7 +13,19 @@ import type {
 
 const SUITS: Suit[] = ['hearts', 'spades', 'clubs', 'diamonds'];
 const RANKS: Rank[] = [
-  'Ace', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'Jack', 'Queen', 'King',
+  'Ace',
+  '2',
+  '3',
+  '4',
+  '5',
+  '6',
+  '7',
+  '8',
+  '9',
+  '10',
+  'Jack',
+  'Queen',
+  'King',
 ];
 
 function freshDeck(): CardData[] {
@@ -54,7 +66,13 @@ function deepClone(state: FiveCardDrawState): FiveCardDrawState {
     players: state.players.map((p) => ({
       ...p,
       cards: p.cards.map((c) => ({ ...c })),
-      rank: p.rank ? { ...p.rank, tiebreakers: [...p.rank.tiebreakers] as [number, number, number, number, number], cards: p.rank.cards.map((c) => ({ ...c })) } : null,
+      rank: p.rank
+        ? {
+            ...p.rank,
+            tiebreakers: [...p.rank.tiebreakers] as [number, number, number, number, number],
+            cards: p.rank.cards.map((c) => ({ ...c })),
+          }
+        : null,
     })),
   };
 }
@@ -175,10 +193,12 @@ function finalizeShowdown(state: FiveCardDrawState): void {
       folded: p.status === 'folded',
     })),
   );
-  const ranks = new Map(
-    state.players.filter((p) => p.rank).map((p) => [p.id, p.rank!]),
+  const ranks = new Map(state.players.filter((p) => p.rank).map((p) => [p.id, p.rank!]));
+  const awards = distributePots(
+    pots,
+    ranks,
+    state.players.map((p) => p.id),
   );
-  const awards = distributePots(pots, ranks, state.players.map((p) => p.id));
   for (const award of awards) {
     const p = state.players.find((pl) => pl.id === award.id);
     if (p) {
@@ -223,7 +243,9 @@ export const fiveCardDrawEngine: GameEngine<
     const players: PlayerSlot[] = playerIds.map((id) => {
       const stack = config.stacks[id];
       if (typeof stack !== 'number' || stack < config.ante) {
-        throw new Error(`5cd: player ${id} cannot afford the ante (stack ${stack} < ante ${config.ante})`);
+        throw new Error(
+          `5cd: player ${id} cannot afford the ante (stack ${stack} < ante ${config.ante})`,
+        );
       }
       return {
         id,
@@ -344,9 +366,7 @@ export const fiveCardDrawEngine: GameEngine<
       p.hasDiscarded = true;
 
       // Advance to next active player who hasn't discarded.
-      const allDone = next.players.every(
-        (pl) => pl.status !== 'active' || pl.hasDiscarded,
-      );
+      const allDone = next.players.every((pl) => pl.status !== 'active' || pl.hasDiscarded);
       if (allDone) {
         endDrawPhase(next);
       } else {
@@ -465,7 +485,7 @@ export const fiveCardDrawEngine: GameEngine<
       currentBet: p.currentBet,
       totalBet: p.totalBet,
       hasDiscarded: p.hasDiscarded,
-      rank: (reveal || p.id === viewer) ? p.rank : null,
+      rank: reveal || p.id === viewer ? p.rank : null,
       winnings: p.winnings,
     }));
 
@@ -475,7 +495,8 @@ export const fiveCardDrawEngine: GameEngine<
       minRaise: state.minRaise,
     };
 
-    const legalActions = viewer === 'spectator' ? [] : fiveCardDrawEngine.legalActions(state, viewer);
+    const legalActions =
+      viewer === 'spectator' ? [] : fiveCardDrawEngine.legalActions(state, viewer);
 
     return {
       type: 'fivecarddraw',
@@ -526,10 +547,7 @@ export const fiveCardDrawEngine: GameEngine<
  * Never raises (passive) and never bluffs. Easy to extend later with
  * pot-odds, hand-strength tiers, occasional aggression, etc.
  */
-function fiveCardDrawAiAction(
-  state: FiveCardDrawState,
-  slotId: string,
-): FiveCardDrawAction {
+function fiveCardDrawAiAction(state: FiveCardDrawState, slotId: string): FiveCardDrawAction {
   const slot = state.players.find((p) => p.id === slotId);
   if (!slot) throw new Error(`5cd AI: unknown slot ${slotId}`);
 
@@ -561,18 +579,14 @@ function pickDiscards(cards: CardData[]): number[] {
   for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
 
   // Keep cards that are part of any pair/trips/quads.
-  const pairedIndices = new Set(
-    values.flatMap((v, i) => ((counts.get(v) ?? 0) >= 2 ? [i] : [])),
-  );
+  const pairedIndices = new Set(values.flatMap((v, i) => ((counts.get(v) ?? 0) >= 2 ? [i] : [])));
 
   if (pairedIndices.size > 0) {
     return [0, 1, 2, 3, 4].filter((i) => !pairedIndices.has(i));
   }
 
   // No paired cards — keep the top two by rank, discard the bottom three.
-  const sorted = values
-    .map((v, i) => ({ v, i }))
-    .sort((a, b) => b.v - a.v);
+  const sorted = values.map((v, i) => ({ v, i })).sort((a, b) => b.v - a.v);
   const keep = new Set(sorted.slice(0, 2).map((x) => x.i));
   return [0, 1, 2, 3, 4].filter((i) => !keep.has(i));
 }

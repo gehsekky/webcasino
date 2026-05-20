@@ -15,10 +15,7 @@ export async function getOptionalUser(request: Request): Promise<SessionUser | n
   return authenticator.isAuthenticated(request);
 }
 
-export async function requireSeat(
-  request: Request,
-  gamePlayerId: string,
-): Promise<SessionUser> {
+export async function requireSeat(request: Request, gamePlayerId: string): Promise<SessionUser> {
   const user = await requireUser(request);
   const seat = await prisma.hand_seat.findUnique({
     where: { id: gamePlayerId },

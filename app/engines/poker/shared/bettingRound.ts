@@ -162,9 +162,7 @@ export function applyBettingAction(
       const target = action.kind === 'bet' ? action.amount : action.amount;
       // For a raise, target must be at least currentBet + minRaise.
       if (action.kind === 'raise' && target < state.currentBet + state.minRaise) {
-        throw new Error(
-          `raise: ${target} below minimum (${state.currentBet + state.minRaise})`,
-        );
+        throw new Error(`raise: ${target} below minimum (${state.currentBet + state.minRaise})`);
       }
       const owed = target - a.currentBet;
       if (owed > a.chips) {

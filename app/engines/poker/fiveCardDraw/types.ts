@@ -18,13 +18,7 @@ import type { HandRank } from '../shared/types';
  * In practice the engine's initialState produces a state that's already
  * in `betting_1`.
  */
-export type Phase =
-  | 'awaiting_deal'
-  | 'betting_1'
-  | 'draw'
-  | 'betting_2'
-  | 'showdown'
-  | 'settled';
+export type Phase = 'awaiting_deal' | 'betting_1' | 'draw' | 'betting_2' | 'showdown' | 'settled';
 
 /**
  * Per-player slot. The engine evolves these in place; the seat layer
