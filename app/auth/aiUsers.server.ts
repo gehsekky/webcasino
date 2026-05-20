@@ -65,9 +65,20 @@ export async function ensureAIUserPool(): Promise<void> {
 }
 
 /**
- * Return `n` AI user rows for use at a table. Creates any missing
- * accounts from the pool. Throws when `n` exceeds the canonical pool
- * size (currently 20).
+ * Return `n` AI user rows for use at a table. Bots currently seated at
+ * a hand whose latest persisted state hasn't reached `phase === 'settled'`
+ * are considered busy and excluded — this keeps the same Bot-Alpha row
+ * from being mutated by two settle paths in parallel (see TODO entry on
+ * money concurrency).
+ *
+ * Note: the pick isn't atomic against concurrent `startHand` calls — two
+ * simultaneous starts could both see Bot-Alpha free and both claim her.
+ * Acceptable in practice for now (much rarer than the previous
+ * always-overlap behaviour); a fully race-free fix would either run
+ * `startHand` in SERIALIZABLE or introduce a claim row in its own table.
+ *
+ * Throws when `n` exceeds the canonical pool size, or when the pool is
+ * exhausted by currently-active hands.
  */
 export async function getAvailableAIUsers(n: number): Promise<user[]> {
   if (n < 0) throw new Error(`getAvailableAIUsers: n must be non-negative, got ${n}`);
@@ -76,11 +87,41 @@ export async function getAvailableAIUsers(n: number): Promise<user[]> {
     throw new Error(`getAvailableAIUsers: requested ${n} but pool max is ${AI_NAMES.length}`);
   }
   await ensureAIUserPool();
-  return prisma.user.findMany({
-    where: { is_ai: true, name: { in: [...AI_NAMES] } },
+
+  // Walk every AI hand_seat row (pool is small and bounded), check the
+  // attached hand's persisted phase, and treat anyone not yet settled as
+  // unavailable.
+  const aiHandSeats = await prisma.hand_seat.findMany({
+    where: { user: { is_ai: true } },
+    select: {
+      user_id: true,
+      hand: { select: { data: true } },
+    },
+  });
+  const busyIds = new Set<string>();
+  for (const hs of aiHandSeats) {
+    const phase = (hs.hand.data as { phase?: string } | null)?.phase;
+    if (phase && phase !== 'settled') {
+      busyIds.add(hs.user_id);
+    }
+  }
+
+  const available = await prisma.user.findMany({
+    where: {
+      is_ai: true,
+      name: { in: [...AI_NAMES] },
+      id: { notIn: [...busyIds] },
+    },
     orderBy: { created_at: 'asc' },
     take: n,
   });
+  if (available.length < n) {
+    throw new Error(
+      `getAvailableAIUsers: requested ${n} but only ${available.length} free ` +
+        `(${busyIds.size}/${AI_NAMES.length} busy in active hands)`,
+    );
+  }
+  return available;
 }
 
 export const AI_USER_NAMES = AI_NAMES;
