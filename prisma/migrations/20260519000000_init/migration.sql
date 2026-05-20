@@ -1,3 +1,8 @@
+-- Make the uuid generator available. seed.sql also creates this on a
+-- fresh prod DB, but the shadow DB Prisma uses for `migrate dev` only
+-- runs migrations — so it needs to land here too.
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 -- CreateTable
 CREATE TABLE "user" (
     "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
