@@ -5,6 +5,7 @@ import {
   BET_LABEL,
   BET_PAYOUT,
   isRed,
+  type RouletteBet,
   type RouletteView,
   type BetKind,
 } from 'engines/roulette/types';
@@ -100,12 +101,13 @@ export default function RouletteHandView({
           })}
         </div>
 
-        {view.phase === 'awaiting_bets' && isViewer && (
+        {view.phase === 'awaiting_bets' && isViewer && viewerSlot && (
           <BetForm
             roomId={roomId}
             min={view.config.minimumBet}
             max={view.config.maximumBet}
             balance={viewerBalance}
+            viewerSlot={viewerSlot}
           />
         )}
 
@@ -251,11 +253,13 @@ function BetForm({
   min,
   max,
   balance,
+  viewerSlot,
 }: {
   roomId: string;
   min: number;
   max: number;
   balance: number;
+  viewerSlot: RouletteView['players'][number];
 }) {
   const fetcher = useFetcher();
   const [selected, setSelected] = useState<SelectedBet | null>(null);
@@ -275,6 +279,8 @@ function BetForm({
       <input type="hidden" name="number" value={selected?.number ?? ''} />
 
       <BettingBoard selected={selected} onSelect={setSelected} />
+
+      <ActiveBetsList bets={viewerSlot.bets} totalStake={viewerSlot.totalStake} />
 
       <div className="flex flex-wrap items-end gap-3 pt-1">
         <div className="flex flex-col gap-1">
@@ -308,6 +314,72 @@ function BetForm({
       </div>
     </fetcher.Form>
   );
+}
+
+/**
+ * Visible inventory of the viewer's bets for the current round, so they
+ * can see at-a-glance what they've already placed before adding more
+ * (helps avoid accidentally double-betting the same kind). Each line is
+ * one bet row; clicking the same cell twice and submitting twice creates
+ * two separate bets — that's the engine contract today. A future
+ * "consolidate matching bets" affordance would live here too.
+ */
+function ActiveBetsList({ bets, totalStake }: { bets: RouletteBet[]; totalStake: number }) {
+  if (bets.length === 0) return null;
+  return (
+    <section
+      aria-labelledby="active-bets-heading"
+      className="rounded-lg bg-emerald-950/40 ring-1 ring-emerald-800/40 p-3 text-sm"
+    >
+      <h3
+        id="active-bets-heading"
+        className="text-xs uppercase tracking-wider text-emerald-200/80 mb-2"
+      >
+        Your bets
+      </h3>
+      <ul className="space-y-1">
+        {bets.map((b) => (
+          <li key={b.id} className="flex items-center justify-between gap-3 text-emerald-100">
+            <span className="flex items-center gap-2 min-w-0">
+              <span
+                aria-hidden="true"
+                className={`shrink-0 w-3 h-3 rounded-full ${swatchForBet(b)}`}
+              />
+              <span className="truncate">{describeBetRow(b)}</span>
+            </span>
+            <span className="font-semibold tabular-nums shrink-0">
+              ${b.amount.toLocaleString()}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-2 pt-2 border-t border-emerald-800/40 flex justify-between text-xs">
+        <span className="text-emerald-200/80 uppercase tracking-wide">Total staked</span>
+        <span className="font-semibold text-white tabular-nums">
+          ${totalStake.toLocaleString()}
+        </span>
+      </div>
+    </section>
+  );
+}
+
+function swatchForBet(b: RouletteBet): string {
+  if (b.kind === 'straight') {
+    if (b.number === 0) return 'bg-emerald-600';
+    if (b.number !== undefined && isRed(b.number)) return 'bg-red-600';
+    return 'bg-slate-900';
+  }
+  if (b.kind === 'red') return 'bg-red-600';
+  if (b.kind === 'black') return 'bg-slate-900';
+  // Outside / dozen / column — use a neutral chip.
+  return 'bg-emerald-700';
+}
+
+function describeBetRow(b: RouletteBet): string {
+  if (b.kind === 'straight') return `Straight ${b.number}`;
+  // Append payout odds for outside/dozen/column bets so the user sees
+  // what they're betting against without having to remember the table.
+  return `${BET_LABEL[b.kind]} (${BET_PAYOUT[b.kind]}:1)`;
 }
 
 function BettingBoard({
