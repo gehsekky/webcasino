@@ -1,6 +1,11 @@
 #!/bin/sh
+set -e
 
-# Prisma client is generated at image build time via the postinstall
-# hook (see package.json + Dockerfile), so no generate step needed here.
+# Apply any pending Prisma migrations against the production DB
+# before the server starts. Aborts startup on migration failure so
+# the orchestrator can roll back instead of serving against a stale
+# schema. Idempotent: a no-op when the DB is already up to date.
 cd /app
-npm run start
+npx prisma migrate deploy
+
+exec npm run start
