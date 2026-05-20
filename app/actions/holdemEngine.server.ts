@@ -36,6 +36,12 @@ export async function startHoldemHand(params: {
   participants: HandParticipant[];
   config: HoldemRoomConfig;
   creatorId: string;
+  /**
+   * Seat index of the dealer button for this hand. Lifecycle layer
+   * computes this from the previous Hold'em hand's `dealerIdx + 1`
+   * (mod numPlayers). Defaults to 0 for the first hand at the room.
+   */
+  dealerIdx?: number;
 }): Promise<{ handId: string }> {
   if (params.participants.length < 2) {
     throw new Error('startHoldemHand: holdem needs at least 2 participants');
@@ -66,7 +72,12 @@ export async function startHoldemHand(params: {
     }
 
     const initialState = holdemEngine.initialState(
-      { smallBlind: cfg.smallBlind, bigBlind: cfg.bigBlind, stacks },
+      {
+        smallBlind: cfg.smallBlind,
+        bigBlind: cfg.bigBlind,
+        stacks,
+        dealerIdx: params.dealerIdx,
+      },
       playerIds,
       defaultRng,
     );

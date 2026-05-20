@@ -1,3 +1,38 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/*
+ * Slot-reel spin animation. Each reel renders a vertical strip whose top
+ * cell is the target symbol, with N filler cells below. The animation
+ * translates the strip from `-N*cellHeight` (showing the last filler at
+ * the window) down to `0` (target at the window), so symbols visually
+ * flow DOWNWARD through the window before settling on the target.
+ *
+ * Strip length and cell size are fixed in the component (21 cells × 6rem),
+ * so the keyframe's `from` translation is hard-coded to match.
+ * Per-reel staggering is done via inline `animation-duration`.
+ */
+@keyframes reel-spin-down {
+  from {
+    transform: translateY(-120rem);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/*
+ * Roulette wheel spin animation. Same strip-of-cells pattern as slots,
+ * but framed in a circular `overflow-hidden` window. Strip is 41 cells
+ * × 7.5rem (matches the 120px wheel diameter) so `from` translation is
+ * `-(41-1) * 7.5rem = -300rem`.
+ */
+@keyframes wheel-spin-down {
+  from {
+    transform: translateY(-300rem);
+  }
+  to {
+    transform: translateY(0);
+  }
+}

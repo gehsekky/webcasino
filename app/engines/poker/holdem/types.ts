@@ -73,7 +73,8 @@ export type HoldemState = {
    * players are seated: dealer is also the small blind and acts first
    * preflop. Multi-way: dealer is the button, +1 = SB, +2 = BB, +3 = UTG.
    *
-   * For first version this is always 0 (no rotation between hands).
+   * Rotates by +1 mod numPlayers between hands at the same room — the
+   * wrapper passes the next index via `HoldemConfig.dealerIdx`.
    */
   dealerIdx: number;
 };
@@ -93,6 +94,12 @@ export type HoldemConfig = {
   bigBlind: number;
   /** Starting chip stack per player id. */
   stacks: Record<string, number>;
+  /**
+   * Seat index of the dealer button. The wrapper passes
+   * `(prevHandDealerIdx + 1) % playerIds.length` to rotate the blinds
+   * each hand. Defaults to 0 (the first hand at the room).
+   */
+  dealerIdx?: number;
 };
 
 /** Pot info exposed to the client. */

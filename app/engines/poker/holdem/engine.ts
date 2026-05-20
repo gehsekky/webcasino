@@ -351,6 +351,13 @@ export const holdemEngine: GameEngine<HoldemState, HoldemAction, HoldemView, Hol
       }
     }
 
+    // Default to seat 0 for the room's first hand. Wrapper rotates this
+    // by +1 mod numPlayers on each subsequent hand so blind contribution
+    // walks around the table fairly.
+    const dealerIdx =
+      typeof config.dealerIdx === 'number'
+        ? ((config.dealerIdx % players.length) + players.length) % players.length
+        : 0;
     const state: HoldemState = {
       type: 'holdem',
       config: { smallBlind: config.smallBlind, bigBlind: config.bigBlind },
@@ -363,7 +370,7 @@ export const holdemEngine: GameEngine<HoldemState, HoldemAction, HoldemView, Hol
       currentBet: 0,
       minRaise: config.bigBlind,
       lastAggressorId: null,
-      dealerIdx: 0,
+      dealerIdx,
     };
     postBlinds(state);
 

@@ -1,7 +1,13 @@
 import { Form, Link, useFetcher } from '@remix-run/react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react';
-import { SLOT_SYMBOL_GLYPH, type SlotsView } from 'engines/slots/types';
+import {
+  SLOT_SYMBOL_GLYPH,
+  SLOT_SYMBOLS,
+  type SlotsSymbol,
+  type SlotsView,
+} from 'engines/slots/types';
+import { useSlotsView } from 'hooks/useSlotsView';
 import { buttonClass } from 'lib/buttonStyle';
 import GameSwitcher from './GameSwitcher';
 import ConnectionStatus from './ConnectionStatus';
@@ -37,10 +43,11 @@ export default function SlotsHandView({
   viewerName,
   viewerBalance,
 }: SlotsHandViewProps) {
-  // SSE updates only matter when another seat (impossible here, 1-seat
-  // game) acts. We seed the view from props and ignore the stream — the
-  // page revalidates on submit and re-renders with the new state.
-  const view = initialView;
+  // Slots is single-seat, so SSE updates rarely add anything beyond what
+  // the post-submit revalidation already shows. We subscribe anyway for
+  // shape consistency with the other game views — keeps the door open
+  // for spectator viewing later.
+  const { view, status } = useSlotsView(roomId, initialView);
   const slot = view.players[0];
   const isViewer = handSeatId === slot?.id;
 
@@ -60,7 +67,7 @@ export default function SlotsHandView({
           <span className="text-xs font-semibold uppercase tracking-wider rounded-full bg-emerald-900/60 px-3 py-1 text-emerald-200 ring-1 ring-emerald-700/60">
             {view.phase === 'settled' ? 'Result' : 'Place your bet'}
           </span>
-          <ConnectionStatus status="open" />
+          <ConnectionStatus status={status} />
         </div>
 
         <ReelDisplay view={view} />
@@ -89,20 +96,73 @@ export default function SlotsHandView({
   );
 }
 
+/**
+ * One reel strip is 21 cells × 6rem each = 126rem tall. The animation
+ * keyframe in tailwind.css translates from -120rem (last filler at the
+ * window) to 0 (target at the window). Keep these in sync if you change
+ * either side.
+ */
+const STRIP_LENGTH = 21;
+const CELL_REM = 6;
+/** Staggered durations per reel — leftmost stops first, rightmost last. */
+const REEL_DURATIONS_MS = [1100, 1500, 1900];
+
+function buildStrip(target: SlotsSymbol): SlotsSymbol[] {
+  // Target on top (visible at the end of the animation); 20 cycling
+  // fillers below for the blur. Deterministic so SSR and CSR match.
+  const cells: SlotsSymbol[] = [target];
+  for (let i = 0; i < STRIP_LENGTH - 1; i++) {
+    cells.push(SLOT_SYMBOLS[(i * 3 + 1) % SLOT_SYMBOLS.length]);
+  }
+  return cells;
+}
+
 function ReelDisplay({ view }: { view: SlotsView }) {
   const reels = view.players[0]?.reels ?? [];
-  const slots: Array<string | null> = [0, 1, 2].map((i) => reels[i] ?? null);
   return (
     <div className="rounded-xl bg-emerald-950/60 ring-1 ring-yellow-700/50 p-6 flex items-center justify-center gap-4">
-      {slots.map((symbol, i) => (
-        <div
+      {[0, 1, 2].map((i) => (
+        <Reel
           key={i}
-          className="w-24 h-32 rounded-lg bg-white ring-2 ring-yellow-300 flex items-center justify-center text-6xl shadow-inner select-none"
-          aria-label={symbol ?? 'empty reel'}
-        >
-          {symbol ? SLOT_SYMBOL_GLYPH[symbol as keyof typeof SLOT_SYMBOL_GLYPH] : '–'}
-        </div>
+          target={(reels[i] as SlotsSymbol | undefined) ?? null}
+          durationMs={REEL_DURATIONS_MS[i]}
+        />
       ))}
+    </div>
+  );
+}
+
+function Reel({ target, durationMs }: { target: SlotsSymbol | null; durationMs: number }) {
+  const strip = useMemo(() => (target ? buildStrip(target) : null), [target]);
+
+  return (
+    <div
+      className="w-24 h-24 rounded-lg bg-white ring-2 ring-yellow-300 shadow-inner overflow-hidden select-none"
+      aria-label={target ?? 'empty reel'}
+      role="img"
+    >
+      {strip ? (
+        <div
+          style={{
+            animation: `reel-spin-down ${durationMs}ms cubic-bezier(0.15, 0.65, 0.25, 1) forwards`,
+            willChange: 'transform',
+          }}
+        >
+          {strip.map((sym, i) => (
+            <div
+              key={i}
+              className="flex items-center justify-center text-6xl text-slate-900"
+              style={{ width: `${CELL_REM}rem`, height: `${CELL_REM}rem` }}
+            >
+              {SLOT_SYMBOL_GLYPH[sym]}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="flex items-center justify-center w-full h-full text-6xl text-slate-300">
+          ?
+        </div>
+      )}
     </div>
   );
 }

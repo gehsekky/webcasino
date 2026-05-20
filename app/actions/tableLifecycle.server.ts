@@ -528,11 +528,22 @@ export async function startHand(params: {
       minimumBuyIn: room.minimum_bet * 20,
       maximumBuyIn: room.maximum_bet * 10,
     };
+    // Rotate the dealer button by 1 from the previous Hold'em hand at
+    // this room. If the most recent hand isn't Hold'em (e.g., the room
+    // recently switched games), start back at seat 0. Acceptable for v1;
+    // a stricter rotation could query the latest hand WHERE type='holdem'.
+    const prevState = room.hand[0]?.data as { type?: string; dealerIdx?: number } | undefined;
+    const prevDealerIdx =
+      prevState?.type === 'holdem' && typeof prevState.dealerIdx === 'number'
+        ? prevState.dealerIdx
+        : null;
+    const nextDealerIdx = prevDealerIdx !== null ? (prevDealerIdx + 1) % participants.length : 0;
     return startHoldemHand({
       roomId: room.id,
       participants,
       config,
       creatorId: params.startedBy.id,
+      dealerIdx: nextDealerIdx,
     });
   }
 

@@ -120,6 +120,24 @@ describe('holdem engine', () => {
     expect(actsA.some((act) => act.kind === 'call')).toBe(true);
   });
 
+  it('config.dealerIdx selects the dealer seat and rotates blinds', () => {
+    const ids = ['a', 'b', 'c'];
+    const cfg = { ...defaultConfig(ids), dealerIdx: 1 };
+    const state = holdemEngine.initialState(cfg, ids, fixedRng([0]));
+    // dealer=1 (b); 3-player → sb=2 (c), bb=0 (a), UTG=1 (b).
+    expect(state.dealerIdx).toBe(1);
+    expect(state.players[2].totalBet).toBe(5); // c is SB
+    expect(state.players[0].totalBet).toBe(10); // a is BB
+    expect(state.toAct).toBe('b'); // UTG
+  });
+
+  it('config.dealerIdx wraps around when out of range', () => {
+    const ids = ['a', 'b', 'c'];
+    const cfg = { ...defaultConfig(ids), dealerIdx: 4 };
+    const state = holdemEngine.initialState(cfg, ids, fixedRng([0]));
+    expect(state.dealerIdx).toBe(1); // 4 % 3 = 1
+  });
+
   it('viewFor masks opponent hole cards before showdown', () => {
     const ids = ['a', 'b'];
     const cfg = defaultConfig(ids);

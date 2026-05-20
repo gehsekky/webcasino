@@ -45,11 +45,14 @@ Roughly ordered by ROI within each section.
 
 ### Open backlog from this batch
 
-- [ ] **Hold'em dealer button rotation.** Today `dealerIdx = 0` always — every hand has the same SB / BB / button. Rotate `dealerIdx` between hands (probably by storing it on the room or deriving from hand count) so blind contribution rotates fairly. Heads-up rules already handled.
-- [ ] **Slots / roulette views should subscribe to SSE.** Both currently re-render only on form submit. Single-seat slots is fine; multi-player roulette would benefit from live "X placed a bet" updates so a non-acting player can see the wheel state evolve. Hook in `useHoldemView`-style.
+- [x] **Hold'em dealer button rotation.** `HoldemConfig.dealerIdx` (optional) threads through `startHoldemHand` to `engine.initialState`. `tableLifecycle.startHand` reads the previous Hold'em hand's `dealerIdx` from `hand.data` and passes `(prev + 1) % participants.length`. Resets to 0 if the most recent hand at the room isn't Hold'em. Covered by `engine.spec.ts`.
+- [x] **Slots / roulette views subscribe to SSE.** `useSlotsView` + `useRouletteView` hooks parallel the other game views; both views now consume `view, status` and render a `ConnectionStatus`. Multi-player roulette gets live "X placed a bet" updates without manual refresh.
+- [x] **Roulette wheel spin animation.** Same strip-translates-downward pattern as slots but framed in the circular wheel window (41 cells × 7.5rem, 2.4s with long-tail ease). New `wheel-spin-down` keyframe in `tailwind.css`.
+- [x] **Room title bar showed "BLACKJACK" for every non-poker game.** Stale ternary in `rooms.$roomId.tsx` replaced with a `GAME_LABEL` map covering all five games.
 - [ ] **Roulette: more bet types.** Corners, streets, splits, six-line. Engine extension point is `BetKind` + `isWinningBet`; UI extension is the bet-kind select. Out of scope for v1.
 - [ ] **Hold'em AI is passive.** Calls pair-or-better, never raises. Same passive policy as 5-card draw. Plays for engagement, not strength. Tighten with pot odds + hand-strength tiers + occasional aggression once we have a feel for table dynamics.
 - [ ] **Poker engine code dedup.** 5-card draw and Hold'em both inline `freshDeck`/`shuffle`/`draw`/`deepClone`/`advanceWithinRound`/`endBettingRound`. Extract into `engines/poker/shared/` once both engines have settled.
+- [ ] **Animation primitives dedup.** Slots and roulette both use the strip-translates-downward pattern with separate keyframes (`reel-spin-down`, `wheel-spin-down`) and parallel component scaffolding. Extract a reusable `<SpinningStrip>` once a third caller appears.
 - [ ] **Theme / color customization for rooms.** User-requested follow-up after room naming. Per-room color palette (felt color, accent), shown in the room header + chat. Schema: nullable `theme JSON` column or a small `room_theme` table.
 
 ## Type safety & data model

@@ -1,5 +1,5 @@
 import { Form, Link, useFetcher } from '@remix-run/react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react';
 import {
   BET_LABEL,
@@ -8,9 +8,11 @@ import {
   type RouletteView,
   type BetKind,
 } from 'engines/roulette/types';
+import { useRouletteView } from 'hooks/useRouletteView';
 import { buttonClass } from 'lib/buttonStyle';
 import GameSwitcher from './GameSwitcher';
 import Avatar from './Avatar';
+import ConnectionStatus from './ConnectionStatus';
 
 type RouletteHandViewProps = {
   roomId: string;
@@ -50,7 +52,7 @@ export default function RouletteHandView({
   viewerBalance,
   participants,
 }: RouletteHandViewProps) {
-  const view = initialView;
+  const { view, status } = useRouletteView(roomId, initialView);
   const viewerSlot = view.players.find((p) => p.id === handSeatId);
   const isViewer = !!viewerSlot;
 
@@ -73,6 +75,7 @@ export default function RouletteHandView({
           <span className="text-xs uppercase tracking-wider text-emerald-200/70 tabular-nums">
             Balance: ${viewerBalance.toLocaleString()}
           </span>
+          <ConnectionStatus status={status} />
         </div>
 
         <WheelDisplay result={view.result} />
@@ -114,23 +117,88 @@ export default function RouletteHandView({
   );
 }
 
+/**
+ * Wheel cell layout: 41-cell strip × 7.5rem each = 307.5rem tall. The
+ * `wheel-spin-down` keyframe translates from -300rem (showing the bottom
+ * filler) to 0 (showing the top cell = the result). Keep these in sync
+ * with the keyframe in tailwind.css.
+ */
+const WHEEL_STRIP_LENGTH = 41;
+const WHEEL_CELL_REM = 7.5;
+const WHEEL_DIAMETER_PX = 120;
+const WHEEL_SPIN_MS = 2400;
+
+function colorForPocket(n: number): string {
+  if (n === 0) return 'bg-emerald-600 text-white';
+  if (isRed(n)) return 'bg-red-600 text-white';
+  return 'bg-slate-900 text-white';
+}
+
+function buildWheelStrip(result: number): number[] {
+  // Result on top (visible at end of animation); 40 cycling fillers below
+  // using a prime stride so the same number rarely repeats consecutively.
+  // Deterministic so SSR and CSR render the same DOM.
+  const cells: number[] = [result];
+  for (let i = 0; i < WHEEL_STRIP_LENGTH - 1; i++) {
+    cells.push((i * 7 + 3) % 37);
+  }
+  return cells;
+}
+
 function WheelDisplay({ result }: { result: number | null }) {
-  const color =
-    result === null
-      ? 'bg-slate-700 text-slate-300'
-      : result === 0
-        ? 'bg-emerald-600 text-white'
-        : isRed(result)
-          ? 'bg-red-600 text-white'
-          : 'bg-slate-900 text-white';
+  if (result === null) {
+    return (
+      <div className="rounded-xl bg-emerald-950/60 ring-1 ring-yellow-700/50 p-6 flex items-center justify-center">
+        <div
+          className="flex items-center justify-center rounded-full bg-slate-700 text-slate-300 ring-4 ring-yellow-300 shadow-2xl select-none"
+          style={{
+            width: WHEEL_DIAMETER_PX,
+            height: WHEEL_DIAMETER_PX,
+            fontSize: 48,
+            fontWeight: 800,
+          }}
+          aria-label="wheel awaiting spin"
+        >
+          ?
+        </div>
+      </div>
+    );
+  }
+  return <SpinningWheel result={result} />;
+}
+
+function SpinningWheel({ result }: { result: number }) {
+  const strip = useMemo(() => buildWheelStrip(result), [result]);
+  const finalColor = colorForPocket(result);
+
   return (
     <div className="rounded-xl bg-emerald-950/60 ring-1 ring-yellow-700/50 p-6 flex items-center justify-center">
       <div
-        className={`flex items-center justify-center rounded-full ${color} ring-4 ring-yellow-300 shadow-2xl select-none`}
-        style={{ width: 120, height: 120, fontSize: 48, fontWeight: 800 }}
-        aria-label={result === null ? 'wheel awaiting spin' : `result ${result}`}
+        className={`relative rounded-full ${finalColor} ring-4 ring-yellow-300 shadow-2xl select-none overflow-hidden`}
+        style={{ width: WHEEL_DIAMETER_PX, height: WHEEL_DIAMETER_PX }}
+        aria-label={`result ${result}`}
+        role="img"
       >
-        {result === null ? '?' : result}
+        <div
+          style={{
+            animation: `wheel-spin-down ${WHEEL_SPIN_MS}ms cubic-bezier(0.18, 0.7, 0.22, 1) forwards`,
+            willChange: 'transform',
+          }}
+        >
+          {strip.map((n, i) => (
+            <div
+              key={i}
+              className={`flex items-center justify-center font-extrabold ${colorForPocket(n)}`}
+              style={{
+                width: WHEEL_DIAMETER_PX,
+                height: `${WHEEL_CELL_REM}rem`,
+                fontSize: 48,
+              }}
+            >
+              {n}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

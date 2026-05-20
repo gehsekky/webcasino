@@ -39,6 +39,14 @@ type RoomSeatSummary = {
   isCreator: boolean;
 };
 
+const GAME_LABEL: Record<RoomGameType, string> = {
+  blackjack: 'Blackjack',
+  poker: '5-Card Draw',
+  holdem: "Texas Hold'em",
+  slots: 'Slots',
+  roulette: 'Roulette',
+};
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const roomId = params.roomId;
   if (!roomId) throw new Response('roomId required', { status: 400 });
@@ -420,7 +428,7 @@ export default function RoomRoute() {
             <h1 className="text-xl font-bold text-white">{data.room.name}</h1>
             <span className="text-sm text-emerald-200/70">·</span>
             <span className="text-sm uppercase tracking-wider text-emerald-200/70">
-              {data.room.gameType === 'poker' ? '5-Card Draw' : 'Blackjack'}
+              {GAME_LABEL[gt]}
             </span>
           </div>
           {main}
