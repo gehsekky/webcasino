@@ -5,7 +5,7 @@ export type ConnectionStatus = 'connecting' | 'open' | 'reconnecting' | 'closed'
 
 /**
  * Poker counterpart to `useHandView`. Subscribes to the server-sent
- * channel for `handId`, seeds the local state from the loader-provided
+ * channel for `roomId`, seeds the local state from the loader-provided
  * snapshot, and applies incremental view updates as they arrive.
  *
  * Identical shape to the blackjack hook; the only difference is the
@@ -13,7 +13,7 @@ export type ConnectionStatus = 'connecting' | 'open' | 'reconnecting' | 'closed'
  * single generic later if we want.
  */
 export function usePokerView(
-  handId: string,
+  roomId: string,
   initialView: FiveCardDrawView,
 ): { view: FiveCardDrawView; status: ConnectionStatus } {
   const [view, setView] = useState<FiveCardDrawView>(initialView);
@@ -23,7 +23,7 @@ export function usePokerView(
     if (typeof window === 'undefined' || typeof EventSource === 'undefined') {
       return;
     }
-    const es = new EventSource(`/hands/${handId}/events`);
+    const es = new EventSource(`/rooms/${roomId}/events`);
     es.onopen = () => setStatus('open');
 
     const handle = (e: MessageEvent) => {
@@ -46,7 +46,7 @@ export function usePokerView(
       es.close();
       setStatus('closed');
     };
-  }, [handId]);
+  }, [roomId]);
 
   return { view, status };
 }

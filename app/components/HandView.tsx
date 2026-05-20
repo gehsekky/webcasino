@@ -9,48 +9,48 @@ import InsuranceForm from './InsuranceForm';
 import OutcomeBanner from './OutcomeBanner';
 import ConnectionStatus from './ConnectionStatus';
 
-type AreaInfo = { id: string; name: string } | null;
-
 type HandViewProps = {
-  handId: string;
-  handSeatId: string;
+  /** Room this hand belongs to. Used for SSE subscription + back link. */
+  roomId: string;
+  /**
+   * Viewer's hand_seat id if they're a participant in this hand. Null
+   * when the viewer joined the room mid-hand and is spectating until the
+   * next round.
+   */
+  handSeatId: string | null;
   initialView: BlackjackView;
   viewerName: string;
   viewerBalance: number;
-  /** The casino area this hand belongs to. Null when bet limits don't match any registered area. */
-  area: AreaInfo;
-  /** The game type ('blackjack' for now). Used by the same-area "New Hand" CTA. */
-  gameType: string;
 };
 
 export default function HandView({
-  handId,
+  roomId,
   handSeatId,
   initialView,
   viewerName,
   viewerBalance,
-  area,
-  gameType,
 }: HandViewProps) {
-  const { view, status } = useHandView(handId, initialView);
+  const { view, status } = useHandView(roomId, initialView);
   // After splitting, the viewer owns multiple slots. The "primary" slot is
   // the one tied to their hand_seat row; siblings are split children.
-  const viewerSlots = view.players.filter(
-    (p) => p.id === handSeatId || p.parentSlotId === handSeatId,
-  );
+  // Spectators (handSeatId === null) own no slots.
+  const viewerSlots = handSeatId
+    ? view.players.filter((p) => p.id === handSeatId || p.parentSlotId === handSeatId)
+    : [];
   const primarySlot = viewerSlots.find((s) => s.id === handSeatId);
-  const isViewerActing = viewerSlots.some((s) => s.id === view.toAct);
+  const isViewerActing = handSeatId != null && viewerSlots.some((s) => s.id === view.toAct);
   const hasSplit = viewerSlots.length > 1;
+  const isSpectator = handSeatId === null;
 
   return (
     <main className="container mx-auto px-4 sm:px-6 py-6 sm:py-10">
       <div className="max-w-4xl mx-auto space-y-4">
         <nav className="px-1">
           <Link
-            to={area ? `/casino/${area.id}` : '/'}
+            to="/"
             className="inline-flex items-center gap-1 text-sm text-emerald-200 hover:text-white"
           >
-            ← Back to {area ? area.name : 'lobby'}
+            ← Back to landing
           </Link>
         </nav>
         <div className="flex items-center justify-between gap-3 px-1">
@@ -84,31 +84,42 @@ export default function HandView({
         </div>
 
         <div className="pt-2">
-          {view.phase === 'awaiting_bets' && primarySlot?.status === 'awaiting_bet' && (
-            <BetForm
-              minimumBet={view.config.minimumBet}
-              maximumBet={view.config.maximumBet}
-              balance={viewerBalance}
-            />
+          {isSpectator && view.phase !== 'settled' && (
+            <p className="text-center text-emerald-200/80 italic">
+              spectating — you join the next hand
+            </p>
           )}
 
-          {view.phase === 'insurance_offered' &&
+          {!isSpectator &&
+            view.phase === 'awaiting_bets' &&
+            primarySlot?.status === 'awaiting_bet' && (
+              <BetForm
+                minimumBet={view.config.minimumBet}
+                maximumBet={view.config.maximumBet}
+                balance={viewerBalance}
+              />
+            )}
+
+          {!isSpectator &&
+            view.phase === 'insurance_offered' &&
             primarySlot &&
             primarySlot.insuranceBet === null && (
               <InsuranceForm originalBet={primarySlot.bet} balance={viewerBalance} />
             )}
 
-          {view.phase === 'insurance_offered' && primarySlot?.insuranceBet !== null && (
-            <p className="text-center text-emerald-200/80 italic">
-              waiting for other seats to decide on insurance…
-            </p>
-          )}
+          {!isSpectator &&
+            view.phase === 'insurance_offered' &&
+            primarySlot?.insuranceBet !== null && (
+              <p className="text-center text-emerald-200/80 italic">
+                waiting for other seats to decide on insurance…
+              </p>
+            )}
 
-          {view.phase === 'playing' && isViewerActing && (
+          {!isSpectator && view.phase === 'playing' && isViewerActing && (
             <ActionBar legalActions={view.legalActions} />
           )}
 
-          {view.phase === 'playing' && !isViewerActing && (
+          {!isSpectator && view.phase === 'playing' && !isViewerActing && (
             <p className="text-center text-emerald-200/80 italic">
               waiting for another seat to act…
             </p>
@@ -120,9 +131,7 @@ export default function HandView({
             </p>
           )}
 
-          {view.phase === 'settled' && viewerSlots.length > 0 && (
-            <OutcomeBanner viewerSlots={viewerSlots} area={area} gameType={gameType} />
-          )}
+          {view.phase === 'settled' && <OutcomeBanner viewerSlots={viewerSlots} roomId={roomId} />}
         </div>
       </div>
     </main>

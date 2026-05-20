@@ -6,10 +6,11 @@ import { buttonClass } from 'lib/buttonStyle';
 type PokerOutcomeBannerProps = {
   view: FiveCardDrawView;
   handSeatId: string;
-  area: { id: string; name: string } | null;
+  /** Room this hand was at. "New Hand" posts back here to start the next one. */
+  roomId: string;
 };
 
-export default function PokerOutcomeBanner({ view, handSeatId, area }: PokerOutcomeBannerProps) {
+export default function PokerOutcomeBanner({ view, handSeatId, roomId }: PokerOutcomeBannerProps) {
   if (view.phase !== 'settled') return null;
 
   const viewer = view.players.find((p) => p.id === handSeatId);
@@ -48,18 +49,17 @@ export default function PokerOutcomeBanner({ view, handSeatId, area }: PokerOutc
         ))}
       </div>
 
-      {area ? (
-        <Form method="post" action={`/casino/${area.id}`} className="mt-4 inline-block">
-          <input type="hidden" name="game" value="poker" />
+      <div className="mt-4 flex justify-center gap-3">
+        <Form method="post" action={`/rooms/${roomId}`} className="inline-block">
+          <input type="hidden" name="intent" value="start_hand" />
           <button type="submit" className={buttonClass({ variant: 'neutral' })}>
             New Hand
           </button>
         </Form>
-      ) : (
-        <Link to="/" className={buttonClass({ variant: 'neutral', className: 'mt-4' })}>
-          Lobby
+        <Link to="/" className={buttonClass({ variant: 'neutral' })}>
+          Landing
         </Link>
-      )}
+      </div>
     </div>
   );
 }

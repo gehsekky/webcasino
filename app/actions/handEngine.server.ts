@@ -1,139 +1,94 @@
 import { randomUUID } from 'node:crypto';
-import type { Prisma, user } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { prisma, type PrismaTransactionClient } from 'db.server';
 import { recordMoneyTransaction } from './moneyTransaction.server';
 import { blackjackEngine } from 'engines/blackjack/engine';
 import { defaultRng } from 'engines/rng';
 import { BlackjackStateSchema, type BlackjackState } from 'lib/gameState';
 import type { BlackjackAction } from 'engines/blackjack/types';
-import { DEFAULT_MAXIMUM_BET, DEFAULT_MINIMUM_BET } from 'constants/index';
 import { appendHandEvent, HAND_INITIALIZED } from 'lib/handEvents';
 import { broadcastBus, type BroadcastedHandEvent } from 'lib/broadcastBus.server';
 import { isNaturalBlackjack } from 'lib/handMath';
-import { getAvailableAIUsers } from 'auth/aiUsers.server';
 
 /**
  * Engine-backed action layer. All game-state transitions flow through
  * `blackjackEngine.applyAction`. Side effects (DB writes, money movements)
  * are scheduled by this wrapper based on the engine's before/after state.
  *
- * Multi-seat: tables can be provisioned with N seats; the human takes
- * position 1, the rest are filled with AI users from the pool. After the
- * human acts, the wrapper runs an AI cascade until either the hand
- * reaches a terminal state or control returns to the human. The dealer
- * phase is then resolved in the same transaction.
+ * Room model: rooms (casino_table rows) live independently of hands; the
+ * room's roster lives in `seat` rows. `startBlackjackHand` consumes a
+ * resolved participant list (humans + AI fills) from `tableLifecycle.server`
+ * and creates the hand + hand_seat rows for a single round.
  *
- * Money model: bets are *reserved* (debited) at placement / cascade
- * step. On terminal settle, the engine emits one SettlementOrder per
- * slot with `delta = winnings - bet`; the wrapper credits the owning
- * user `bet + delta`.
+ * Money model: bets are *reserved* (debited) at placement / cascade step.
+ * On terminal settle, the engine emits one SettlementOrder per slot with
+ * `delta = winnings - bet`; the wrapper credits the owning user
+ * `bet + delta`.
  */
 
-export type CreateHandResult = {
-  handId: string;
-  handSeatId: string;
-  tableId: string;
-  seatId: string;
+/** Shared room rules read from `casino_table` and passed to the engine. */
+export type BlackjackRoomConfig = {
+  minimumBet: number;
+  maximumBet: number;
+  numDecks: number;
+  dealerHitsSoft17: boolean;
 };
 
-export async function createNewHand(params: {
-  user: user;
-  gameType: string;
-  minimumBet?: number;
-  maximumBet?: number;
-  numDecks?: number;
-  dealerHitsSoft17?: boolean;
-  /** Total seats at the table. Empty seats are filled with AI users. */
-  numSeats?: number;
-}): Promise<CreateHandResult> {
-  if (params.gameType !== 'blackjack') {
-    throw new Error(`unsupported game type: ${params.gameType}`);
-  }
-  const minimumBet = params.minimumBet ?? DEFAULT_MINIMUM_BET;
-  const maximumBet = params.maximumBet ?? DEFAULT_MAXIMUM_BET;
-  const numDecks = params.numDecks ?? 1;
-  const dealerHitsSoft17 = params.dealerHitsSoft17 ?? false;
-  const numSeats = params.numSeats ?? 1;
-  if (numSeats < 1) {
-    throw new Error('blackjack: numSeats must be ≥ 1');
-  }
+/**
+ * One participant in a single hand. `seatId` is null for AI fills —
+ * bots don't own a persistent seat at the room, they only exist within
+ * the hand. Position determines the engine's player order.
+ */
+export type HandParticipant = {
+  userId: string;
+  seatId: string | null;
+  position: number;
+};
 
-  // Pull `numSeats - 1` bots for the empty seats. AI users have huge
-  // balances by design so they never break a table's bet bounds.
-  const aiUsers = numSeats > 1 ? await getAvailableAIUsers(numSeats - 1) : [];
-  if (aiUsers.length < numSeats - 1) {
-    throw new Error('blackjack: not enough AI users in the pool');
+/**
+ * Provision a fresh blackjack hand at an existing room. The participant
+ * list is sorted by position so the engine's player order matches the
+ * physical seat layout. Returns just `handId` — callers use the room URL
+ * and look up the hand_seat for the viewer from there.
+ */
+export async function startBlackjackHand(params: {
+  roomId: string;
+  participants: HandParticipant[];
+  config: BlackjackRoomConfig;
+  /** Used for hand.created_by; usually the room creator who pressed Start. */
+  creatorId: string;
+}): Promise<{ handId: string }> {
+  if (params.participants.length === 0) {
+    throw new Error('startBlackjackHand: at least one participant required');
   }
 
   const pendingBroadcasts: BroadcastedHandEvent[] = [];
 
   const result = await prisma.$transaction(async (tx) => {
-    const table = await tx.casino_table.create({
-      data: {
-        game_type: params.gameType,
-        minimum_bet: minimumBet,
-        maximum_bet: maximumBet,
-        max_seats: numSeats,
-        created_by: params.user.id,
-      },
-    });
-
-    const humanSeat = await tx.seat.create({
-      data: {
-        table_id: table.id,
-        user_id: params.user.id,
-        position: 1,
-      },
-    });
-    const aiSeatIds: string[] = [];
-    for (let i = 0; i < aiUsers.length; i++) {
-      const s = await tx.seat.create({
-        data: {
-          table_id: table.id,
-          user_id: aiUsers[i].id,
-          position: i + 2,
-        },
-      });
-      aiSeatIds.push(s.id);
-    }
-
-    // Pre-allocate UUIDs so the engine's player id == hand_seat.id.
+    // Pre-allocate one UUID per participant so engine player ids ==
+    // hand_seat.id. The engine receives players in position order.
     const handId = randomUUID();
-    const humanHandSeatId = randomUUID();
-    const aiHandSeatIds = aiUsers.map(() => randomUUID());
-    const playerIds = [humanHandSeatId, ...aiHandSeatIds];
+    const handSeatIds = params.participants.map(() => randomUUID());
 
-    const initialState = blackjackEngine.initialState(
-      { minimumBet, maximumBet, numDecks, dealerHitsSoft17 },
-      playerIds,
-      defaultRng,
-    );
+    const initialState = blackjackEngine.initialState(params.config, handSeatIds, defaultRng);
 
     await tx.hand.create({
       data: {
         id: handId,
-        table_id: table.id,
-        created_by: params.user.id,
+        table_id: params.roomId,
+        created_by: params.creatorId,
         data: initialState as unknown as Prisma.JsonObject,
       },
     });
 
-    await tx.hand_seat.create({
-      data: {
-        id: humanHandSeatId,
-        hand_id: handId,
-        seat_id: humanSeat.id,
-        user_id: params.user.id,
-        data: { cards: [] } as unknown as Prisma.JsonObject,
-      },
-    });
-    for (let i = 0; i < aiUsers.length; i++) {
+    for (let i = 0; i < params.participants.length; i++) {
+      const p = params.participants[i];
       await tx.hand_seat.create({
         data: {
-          id: aiHandSeatIds[i],
+          id: handSeatIds[i],
           hand_id: handId,
-          seat_id: aiSeatIds[i],
-          user_id: aiUsers[i].id,
+          seat_id: p.seatId, // null for AI fills
+          user_id: p.userId,
           data: { cards: [] } as unknown as Prisma.JsonObject,
         },
       });
@@ -155,12 +110,7 @@ export async function createNewHand(params: {
       state_after: initialState,
     });
 
-    return {
-      handId,
-      handSeatId: humanHandSeatId,
-      tableId: table.id,
-      seatId: humanSeat.id,
-    };
+    return { handId };
   });
 
   // Publish post-commit so subscribers can never see a rolled-back event.

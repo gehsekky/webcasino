@@ -7,11 +7,12 @@ import PokerOutcomeBanner from './PokerOutcomeBanner';
 import ConnectionStatus from './ConnectionStatus';
 
 type PokerHandViewProps = {
-  handId: string;
-  handSeatId: string;
+  /** Room this hand belongs to. Used for SSE subscription + back link. */
+  roomId: string;
+  /** Null when the viewer joined mid-hand and is spectating until the next round. */
+  handSeatId: string | null;
   initialView: FiveCardDrawView;
   viewerName: string;
-  area: { id: string; name: string } | null;
 };
 
 const PHASE_LABEL: Record<FiveCardDrawView['phase'], string> = {
@@ -24,29 +25,26 @@ const PHASE_LABEL: Record<FiveCardDrawView['phase'], string> = {
 };
 
 export default function PokerHandView({
-  handId,
+  roomId,
   handSeatId,
   initialView,
   viewerName,
-  area,
 }: PokerHandViewProps) {
-  const { view, status } = usePokerView(handId, initialView);
+  const { view, status } = usePokerView(roomId, initialView);
 
-  // Display ordering: viewer first, then opponents in seat order (so the
-  // viewer sees themselves at the bottom of the visual stack later if we
-  // ever flip the layout, and the opponents on top).
-  const viewerSlot = view.players.find((p) => p.id === handSeatId);
+  const viewerSlot = handSeatId ? view.players.find((p) => p.id === handSeatId) : undefined;
   const opponents = view.players.filter((p) => p.id !== handSeatId);
+  const isSpectator = handSeatId === null;
 
   return (
     <main className="container mx-auto px-4 sm:px-6 py-6 sm:py-10">
       <div className="max-w-4xl mx-auto space-y-4">
         <nav className="px-1">
           <Link
-            to={area ? `/casino/${area.id}` : '/'}
+            to="/"
             className="inline-flex items-center gap-1 text-sm text-emerald-200 hover:text-white"
           >
-            ← Back to {area ? area.name : 'lobby'}
+            ← Back to landing
           </Link>
         </nav>
 
@@ -83,10 +81,31 @@ export default function PokerHandView({
         )}
 
         <div className="pt-2">
-          <PokerActionArea view={view} handSeatId={handSeatId} />
-          <PokerOutcomeBanner view={view} handSeatId={handSeatId} area={area} />
+          {isSpectator && view.phase !== 'settled' && (
+            <p className="text-center text-emerald-200/80 italic">
+              spectating — you join the next hand
+            </p>
+          )}
+          {handSeatId && <PokerActionArea view={view} handSeatId={handSeatId} />}
+          {handSeatId && <PokerOutcomeBanner view={view} handSeatId={handSeatId} roomId={roomId} />}
+          {isSpectator && view.phase === 'settled' && <SpectatorPostHand roomId={roomId} />}
         </div>
       </div>
     </main>
+  );
+}
+
+function SpectatorPostHand({ roomId }: { roomId: string }) {
+  return (
+    <div className="rounded-xl bg-slate-800 text-white px-6 py-5 text-center shadow-lg">
+      <p className="text-lg font-semibold uppercase tracking-wide">Hand over</p>
+      <p className="mt-2 text-sm opacity-80">you will join the next hand started at this room</p>
+      <Link
+        to={`/rooms/${roomId}`}
+        className="mt-4 inline-block underline text-emerald-200 hover:text-white"
+      >
+        refresh
+      </Link>
+    </div>
   );
 }

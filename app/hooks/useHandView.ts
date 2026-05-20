@@ -4,16 +4,18 @@ import type { BlackjackView } from 'engines/blackjack/types';
 export type ConnectionStatus = 'connecting' | 'open' | 'reconnecting' | 'closed';
 
 /**
- * Subscribes to the server-sent `/hands/:handId/events` stream and keeps
- * a local copy of the latest `BlackjackView`. Initial value comes from the
- * Remix loader (SSR), so the first paint is correct without waiting for
- * the SSE round-trip; live updates take over once the EventSource opens.
+ * Subscribes to the server-sent `/rooms/:roomId/events` stream and keeps
+ * a local copy of the latest `BlackjackView`. Initial value comes from
+ * the Remix loader (SSR), so the first paint is correct without waiting
+ * for the SSE round-trip; live updates take over once the EventSource
+ * opens.
  *
- * EventSource auto-reconnects on transient errors via the `Last-Event-ID`
- * header (the server replays missed events from the hand_event log).
+ * Keyed by `roomId`, not `handId`, so a single subscription survives the
+ * transition from one hand to the next at the same room — the server
+ * picks up whichever hand is active at connection time.
  */
 export function useHandView(
-  handId: string,
+  roomId: string,
   initialView: BlackjackView,
 ): { view: BlackjackView; status: ConnectionStatus } {
   const [view, setView] = useState<BlackjackView>(initialView);
@@ -23,7 +25,7 @@ export function useHandView(
     if (typeof window === 'undefined' || typeof EventSource === 'undefined') {
       return;
     }
-    const es = new EventSource(`/hands/${handId}/events`);
+    const es = new EventSource(`/rooms/${roomId}/events`);
 
     es.onopen = () => setStatus('open');
 
@@ -53,7 +55,7 @@ export function useHandView(
       es.close();
       setStatus('closed');
     };
-  }, [handId]);
+  }, [roomId]);
 
   return { view, status };
 }

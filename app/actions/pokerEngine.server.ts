@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Prisma, user } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { prisma, type PrismaTransactionClient } from 'db.server';
 import { recordMoneyTransaction } from './moneyTransaction.server';
 import { fiveCardDrawEngine } from 'engines/poker/fiveCardDraw/engine';
@@ -7,14 +7,15 @@ import type { FiveCardDrawAction, FiveCardDrawState } from 'engines/poker/fiveCa
 import { defaultRng } from 'engines/rng';
 import { appendHandEvent, HAND_INITIALIZED } from 'lib/handEvents';
 import { broadcastBus, type BroadcastedHandEvent } from 'lib/broadcastBus.server';
-import { getAvailableAIUsers } from 'auth/aiUsers.server';
+import type { HandParticipant } from './handEngine.server';
 import { runAiCascade } from 'engines/aiRunner';
 
 /**
  * 5-card draw wrapper. Mirrors the structure of `handEngine.server.ts`
- * for blackjack but provisions multi-seat tables (1 human + N-1 AI),
- * runs the AI cascade between human actions, and applies poker's
- * per-player chip diffs against `user.money`.
+ * for blackjack: consumes a resolved participant list (humans from
+ * persistent seats + AI fills) from `tableLifecycle.server`, runs the
+ * AI cascade between human actions, and applies poker's per-player chip
+ * diffs against `user.money`.
  *
  * Money model:
  *   At hand start, each player's stack is read from `user.money`. The
@@ -25,108 +26,57 @@ import { runAiCascade } from 'engines/aiRunner';
  *   `totalBet + delta = winnings`.
  */
 
-export type CreatePokerHandResult = {
-  handId: string;
-  handSeatId: string;
-  tableId: string;
-};
-
-export type PokerTableConfig = {
-  /** Total seats at the table. Fills the rest with AI from the pool. */
-  numSeats: number;
+export type PokerRoomConfig = {
   ante: number;
   minBet: number;
-  /**
-   * Maximum bet at the table. Stored on `casino_table.maximum_bet` so the
-   * lobby's reverse area lookup (`findAreaForTable`) can match this table
-   * back to its registered area config — keep this aligned with
-   * `AreaGame.maximumBet`.
-   */
   maxBet: number;
+  /** Used to cap how much a player brings to the table from their wallet. */
   minimumBuyIn: number;
   maximumBuyIn: number;
 };
 
 /**
- * Provision a fresh poker table for a single human, filling the
- * remaining seats with AI players from the pool. Deals the first hand
- * immediately.
+ * Provision a fresh 5-card draw hand at an existing room. AI participants
+ * always bring the table maximum to the felt; humans bring their wallet
+ * capped at the table max. Returns just `handId` — callers find their
+ * hand_seat from the room URL.
  */
-export async function createNewPokerHand(params: {
-  user: user;
-  gameType: string;
-  area: PokerTableConfig;
-}): Promise<CreatePokerHandResult> {
-  if (params.gameType !== 'poker') {
-    throw new Error(`pokerEngine: unsupported game type '${params.gameType}'`);
+export async function startPokerHand(params: {
+  roomId: string;
+  participants: HandParticipant[];
+  config: PokerRoomConfig;
+  creatorId: string;
+}): Promise<{ handId: string }> {
+  if (params.participants.length < 2) {
+    throw new Error('startPokerHand: poker needs at least 2 participants');
   }
-  const cfg = params.area;
-  if (cfg.numSeats < 2) {
-    throw new Error('pokerEngine: numSeats must be ≥ 2');
-  }
-  if (params.user.money < cfg.minimumBuyIn) {
-    throw new Error(
-      `pokerEngine: balance ($${params.user.money}) below table buy-in ($${cfg.minimumBuyIn})`,
-    );
-  }
+  const cfg = params.config;
 
-  // Bring in `numSeats - 1` bot users for the empty seats.
-  const aiUsers = await getAvailableAIUsers(cfg.numSeats - 1);
-  if (aiUsers.length < cfg.numSeats - 1) {
-    throw new Error('pokerEngine: not enough AI users in the pool');
-  }
-
-  // Buy-in: human brings their wallet (capped at table max).
-  const humanBuyIn = Math.min(params.user.money, cfg.maximumBuyIn);
-  const aiBuyIn = cfg.maximumBuyIn; // bots are bottomless — they bring the full max.
+  // Look up each user's wallet to size their buy-in. AI users have
+  // huge balances; humans bring whatever they have (capped at table max).
+  const userIds = params.participants.map((p) => p.userId);
+  const users = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, money: true, is_ai: true },
+  });
+  const userById = new Map(users.map((u) => [u.id, u]));
 
   const pendingBroadcasts: BroadcastedHandEvent[] = [];
 
   const result = await prisma.$transaction(async (tx) => {
-    const table = await tx.casino_table.create({
-      data: {
-        game_type: params.gameType,
-        minimum_bet: cfg.minBet,
-        maximum_bet: cfg.maxBet,
-        max_seats: cfg.numSeats,
-        created_by: params.user.id,
-      },
-    });
-
-    // Pre-allocate seat + hand_seat UUIDs so engine.initialState knows them.
-    const humanSeatId = randomUUID();
-    const aiSeatIds = aiUsers.map(() => randomUUID());
     const handId = randomUUID();
-    const humanHandSeatId = randomUUID();
-    const aiHandSeatIds = aiUsers.map(() => randomUUID());
+    const handSeatIds = params.participants.map(() => randomUUID());
+    const playerIds = handSeatIds;
 
-    await tx.seat.create({
-      data: {
-        id: humanSeatId,
-        table_id: table.id,
-        user_id: params.user.id,
-        position: 1,
-      },
-    });
-    for (let i = 0; i < aiUsers.length; i++) {
-      await tx.seat.create({
-        data: {
-          id: aiSeatIds[i],
-          table_id: table.id,
-          user_id: aiUsers[i].id,
-          position: i + 2,
-        },
-      });
+    // Stacks per participant in position order.
+    const stacks: Record<string, number> = {};
+    for (let i = 0; i < params.participants.length; i++) {
+      const p = params.participants[i];
+      const u = userById.get(p.userId);
+      if (!u) throw new Error(`startPokerHand: user ${p.userId} not found`);
+      const buyIn = u.is_ai ? cfg.maximumBuyIn : Math.min(u.money, cfg.maximumBuyIn);
+      stacks[handSeatIds[i]] = buyIn;
     }
-
-    // Build engine initial state with each player's buy-in as their stack.
-    const stacks: Record<string, number> = {
-      [humanHandSeatId]: humanBuyIn,
-    };
-    for (let i = 0; i < aiUsers.length; i++) {
-      stacks[aiHandSeatIds[i]] = aiBuyIn;
-    }
-    const playerIds = [humanHandSeatId, ...aiHandSeatIds];
 
     const initialState = fiveCardDrawEngine.initialState(
       { ante: cfg.ante, minBet: cfg.minBet, stacks },
@@ -137,43 +87,34 @@ export async function createNewPokerHand(params: {
     await tx.hand.create({
       data: {
         id: handId,
-        table_id: table.id,
-        created_by: params.user.id,
+        table_id: params.roomId,
+        created_by: params.creatorId,
         data: initialState as unknown as Prisma.JsonObject,
       },
     });
 
-    await tx.hand_seat.create({
-      data: {
-        id: humanHandSeatId,
-        hand_id: handId,
-        seat_id: humanSeatId,
-        user_id: params.user.id,
-        data: {} as unknown as Prisma.JsonObject,
-      },
-    });
-    for (let i = 0; i < aiUsers.length; i++) {
+    for (let i = 0; i < params.participants.length; i++) {
+      const p = params.participants[i];
       await tx.hand_seat.create({
         data: {
-          id: aiHandSeatIds[i],
+          id: handSeatIds[i],
           hand_id: handId,
-          seat_id: aiSeatIds[i],
-          user_id: aiUsers[i].id,
+          seat_id: p.seatId, // null for AI fills
+          user_id: p.userId,
           data: {} as unknown as Prisma.JsonObject,
         },
       });
     }
 
-    // Debit the ante from each user (atomic — AI users have huge balances).
-    for (const id of playerIds) {
-      const userId =
-        id === humanHandSeatId ? params.user.id : aiUsers[aiHandSeatIds.indexOf(id)].id;
+    // Debit the ante from each user — atomic (AI users have huge balances).
+    for (let i = 0; i < params.participants.length; i++) {
+      const p = params.participants[i];
       await recordMoneyTransaction(
         {
-          userId,
+          userId: p.userId,
           type: 'debit',
           amount: cfg.ante,
-          gamePlayerId: id,
+          gamePlayerId: handSeatIds[i],
           note: 'reserve:ante',
         },
         tx,
@@ -191,14 +132,10 @@ export async function createNewPokerHand(params: {
       actor_id: null,
       payload: { initialState },
       sequence: bootSeq,
-      state_after: initialState as unknown as never, // poker view differs but broadcast bus is engine-agnostic
+      state_after: initialState as unknown as never,
     });
 
-    return {
-      handId,
-      handSeatId: humanHandSeatId,
-      tableId: table.id,
-    };
+    return { handId };
   });
 
   for (const ev of pendingBroadcasts) {
