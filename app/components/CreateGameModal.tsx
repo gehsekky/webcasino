@@ -56,7 +56,10 @@ export default function CreateGameModal({ open, onClose }: CreateGameModalProps)
         <h2 id="create-game-heading" className="text-xl font-bold text-white mb-4">
           Create a game
         </h2>
-        <fetcher.Form method="post" action="/" className="space-y-4">
+        {/* No `action` set: fetcher.Form defaults to the route that rendered
+            it (_index), which Remix encodes as /?index. An explicit
+            action="/" would target the root layout instead and 405. */}
+        <fetcher.Form method="post" className="space-y-4">
           <input type="hidden" name="intent" value="create_room" />
 
           <div>
