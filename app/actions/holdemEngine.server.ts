@@ -452,7 +452,10 @@ export async function fireHoldemTurnTimeout(handId: string): Promise<void> {
 
   await prisma.$transaction(async (tx) => {
     await acquireHoldemHandLock(tx, handId);
-    const hand = await tx.hand.findUnique({ where: { id: handId } });
+    const hand = await tx.hand.findUnique({
+      where: { id: handId },
+      include: { casino_table: { select: { created_by: true } } },
+    });
     if (!hand) return;
     const state = parseState(hand.data);
     if (state.toAct === null || !state.turnDeadlineAt) return;
@@ -489,11 +492,17 @@ export async function fireHoldemTurnTimeout(handId: string): Promise<void> {
     // Move the timed-out player into sit-out for subsequent hands.
     // hand_seat.seat_id is non-null for humans (AI fills are null, but
     // we already short-circuited above on is_ai !== false).
+    //
+    // Exception: never sit out the room creator — only the creator can
+    // start the next hand, so parking them creates a workflow where
+    // every hand they start excludes them and they have to rejoin
+    // separately. They still auto-fold this hand, just stay in rotation.
     const actingSeat = await tx.hand_seat.findUnique({
       where: { id: acting },
-      select: { seat_id: true },
+      select: { seat_id: true, user_id: true },
     });
-    if (actingSeat?.seat_id) {
+    const isCreator = actingSeat?.user_id === hand.casino_table.created_by;
+    if (actingSeat?.seat_id && !isCreator) {
       await tx.seat.update({
         where: { id: actingSeat.seat_id },
         data: { sitting_out: true },
