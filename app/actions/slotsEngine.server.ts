@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
-import { prisma } from 'db.server';
+import { prisma, type PrismaTransactionClient } from 'db.server';
 import { recordMoneyTransaction } from './moneyTransaction.server';
 import { slotsEngine } from 'engines/slots/engine';
 import type { SlotsAction, SlotsState } from 'engines/slots/types';
 import { defaultRng } from 'engines/rng';
 import { appendHandEvent, HAND_INITIALIZED } from 'lib/handEvents';
 import { broadcastBus, type BroadcastedHandEvent } from 'lib/broadcastBus.server';
+import { handAdvisoryLockKey } from 'lib/turnDeadlineService.server';
 import type { HandParticipant } from './handEngine.server';
 
 /**
@@ -105,7 +106,17 @@ export async function submitSlotsAction(params: {
     if (!handSeat) throw new Error('slotsEngine: hand_seat not found');
     handIdForBroadcast = handSeat.hand_id;
 
-    let state = parseState(handSeat.hand.data);
+    // Per-hand advisory lock + re-read so concurrent spin submissions
+    // serialize cleanly — same pattern as the other engines. Slots is
+    // single-seat so the practical impact is "user double-clicks the
+    // spin button," but the protection is uniform with the rest.
+    await acquireSlotsHandLock(tx, handSeat.hand_id);
+    const fresh = await tx.hand.findUnique({
+      where: { id: handSeat.hand_id },
+      select: { data: true },
+    });
+    if (!fresh) throw new Error('slotsEngine: hand vanished mid-action');
+    let state = parseState(fresh.data);
     if (state.toAct !== params.handSeatId) {
       throw new Error('slotsEngine: not your turn');
     }
@@ -169,6 +180,12 @@ function parseState(raw: unknown): SlotsState {
     throw new Error('slotsEngine: hand.data does not look like a slots state');
   }
   return raw as SlotsState;
+}
+
+/** Per-hand tx-scoped advisory lock, same pattern as the other engines. */
+async function acquireSlotsHandLock(tx: PrismaTransactionClient, handId: string): Promise<void> {
+  const key = handAdvisoryLockKey(handId);
+  await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${key.toString()})`);
 }
 
 export function parseSlotsActionFromForm(
