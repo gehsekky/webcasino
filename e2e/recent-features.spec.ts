@@ -214,6 +214,39 @@ test.describe('Turn timeout (5-Card Draw)', () => {
   });
 });
 
+test.describe('Rate limiting', () => {
+  test('chat send limit: 5 messages within 10s, 6th rejected', async ({ authedPage }) => {
+    const roomName = `e2e-chat-rl-${Date.now()}`;
+    await createRoom(authedPage, { name: roomName });
+
+    const chat = authedPage.getByRole('complementary', { name: /Room chat/i });
+    await expect(chat).toBeVisible();
+
+    const input = chat.getByLabel(/Chat message/i);
+    const sendBtn = chat.getByRole('button', { name: /Send/i });
+
+    // Send the first 5 — each one clears the input on success, which is
+    // a reliable signal the previous submit landed (the SSE delivery and
+    // the fetcher-idle effect race otherwise).
+    for (let i = 1; i <= 5; i++) {
+      await input.fill(`msg ${i}`);
+      await sendBtn.click();
+      await expect(input).toHaveValue('', { timeout: 3_000 });
+      await expect(chat.getByText(`msg ${i}`)).toBeVisible({ timeout: 3_000 });
+    }
+
+    // The 6th submission should be rejected by the server (HTTP 429).
+    // The input clears only on `ok: true` — a failed submit keeps the
+    // draft, so the message body stays in the input and never lands in
+    // the chat log.
+    await input.fill('msg 6 BLOCKED');
+    await sendBtn.click();
+
+    await authedPage.waitForTimeout(1_500);
+    await expect(chat.getByText('msg 6 BLOCKED')).toHaveCount(0);
+  });
+});
+
 test.describe('Turn timeout (Blackjack)', () => {
   // Same TURN_DURATION_MS=2000 override.
 

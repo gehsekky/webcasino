@@ -1,6 +1,11 @@
 import { prisma } from 'db.server';
 import { chatBus, type BroadcastedChatMessage } from 'lib/chatBus.server';
 import { MAX_CHAT_BODY_LENGTH, type ChatMessage } from 'lib/chat';
+import { enforceRateLimit } from 'lib/rateLimit.server';
+
+/** Per-(user, room) chat send: 5 messages per 10 seconds. */
+const CHAT_RATE_WINDOW_MS = 10_000;
+const CHAT_RATE_MAX = 5;
 
 export { MAX_CHAT_BODY_LENGTH, type ChatMessage };
 
@@ -26,6 +31,12 @@ export async function sendChatMessage(params: {
       status: 400,
     });
   }
+
+  enforceRateLimit({
+    key: `chat:${params.roomId}:${params.userId}`,
+    windowMs: CHAT_RATE_WINDOW_MS,
+    maxHits: CHAT_RATE_MAX,
+  });
 
   const row = await prisma.chat_message.create({
     data: {

@@ -4,6 +4,7 @@ import { AuthenticityTokenInput } from 'remix-utils/csrf/react';
 import { prisma } from 'db.server';
 import { requireUser } from 'auth/guards.server';
 import { csrf, CSRFError } from 'auth/csrf.server';
+import { enforceRateLimit } from 'lib/rateLimit.server';
 import {
   archiveRoom,
   changeRoomMaxSeats,
@@ -405,6 +406,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
   if (!handSeat) {
     throw new Response('not a participant of the active hand', { status: 403 });
   }
+
+  // Game-action rate limit: 2 per second per user, room-scoped so two
+  // tabs in different rooms don't share the budget. Humans never hit
+  // this; auto-tools spamming the action endpoint do.
+  enforceRateLimit({
+    key: `game-action:${roomId}:${user.id}`,
+    windowMs: 1_000,
+    maxHits: 2,
+  });
 
   const submitValue = formData.get('submit')?.toString() ?? '';
   const stateType = (latest.data as { type?: string } | null)?.type;

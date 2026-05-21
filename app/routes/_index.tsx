@@ -11,6 +11,7 @@ import { AuthenticityTokenInput } from 'remix-utils/csrf/react';
 import { prisma } from 'db.server';
 import { getOptionalUser, requireUser } from 'auth/guards.server';
 import { csrf, CSRFError } from 'auth/csrf.server';
+import { enforceRateLimit } from 'lib/rateLimit.server';
 import { providers } from 'auth/providers.server';
 import {
   createRoom,
@@ -75,6 +76,14 @@ export async function action({ request }: ActionFunctionArgs) {
   const intent = formData.get('intent')?.toString() ?? '';
 
   if (intent === 'create_room') {
+    // 5 rooms / hour per user. Tight enough to block spam-create from
+    // an automated client; loose enough that a normal session never trips.
+    enforceRateLimit({
+      key: `room-create:${user.id}`,
+      windowMs: 3_600_000,
+      maxHits: 5,
+    });
+
     const name = formData.get('name')?.toString() ?? '';
     const gameType = formData.get('gameType')?.toString();
     const numSeats = parseInt(formData.get('numSeats')?.toString() ?? '', 10);
@@ -108,6 +117,13 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   if (intent === 'accept_invitation') {
+    // 10 accepts / minute. Light limit — only catches scripted abuse.
+    enforceRateLimit({
+      key: `invite-accept:${user.id}`,
+      windowMs: 60_000,
+      maxHits: 10,
+    });
+
     const invitationId = formData.get('invitationId')?.toString();
     if (!invitationId) throw new Response('invitationId required', { status: 400 });
     const result = await acceptInvitation({ user, invitationId });

@@ -10,13 +10,15 @@ Roughly ordered by ROI within each section.
 > exempted), advisory locks across every engine, partial-unique room
 > names, creator-only enforcement on roulette spin / baccarat deal,
 > seat-count adjustment + kick from the lobby, idempotency keys on
-> every settle path, `/healthz`, and Zod-validated state on every
-> engine. The big unresolved work is **rate limiting**, the
-> **modal-focus-trap** a11y gap, and the production-readiness items
+> every settle path, `/healthz`, Zod-validated state on every engine,
+> and rate limiting across chat / game actions / room create /
+> invitation accept. The big unresolved work is the
+> **modal-focus-trap** a11y gap and the production-readiness items
 > below (logs, error reporting, deploy plumbing, secrets, etc.).
 
 ## Recently shipped (since last TODO update)
 
+- [x] **Rate limiting.** New `app/lib/rateLimit.server.ts` — in-memory sliding-window counter (`checkRateLimit` + `enforceRateLimit`, the latter throws `Response(429, Retry-After)` ready for Remix to surface). Wired to chat (`5 / 10s` per user-per-room), game-action submit (`2 / s` per user-per-room), room create (`5 / hr` per user), and invitation accept (`10 / min` per user). 8 unit tests for the library, plus an e2e that sends 6 messages back-to-back and asserts the 6th is rejected. Replace storage with Redis when we go multi-instance.
 - [x] **Baccarat (Punto Banco).** Sixth game. `engines/baccarat/` with full tableau (table-driven test that exhausts every banker-total × player-3rd cell), `actions/baccaratEngine.server.ts` mirroring the roulette wrapper (advisory lock, re-read, debit on place_bet, settle on deal), creator-only `deal` gating, BaccaratHandView with Player/Banker hand panels, three-button bet picker (Player / Banker / Tie 8:1), and an e2e smoke test. Defaults: 8-deck shoe, tie pays 8:1, 5% banker commission floor-rounded, seat range 1–7.
 - [x] **Player turn timeouts.** 30s clock per human turn (`TURN_DURATION_MS`); engine state carries `turnDeadlineAt`; in-process scheduler arms a timer per hand; fires through `engine.aiAction`-style auto-actions while serialized by `pg_advisory_xact_lock(handId)`. Boot reconciliation walks unsettled hands on `entry.server` and re-arms / fires-now as appropriate. `useCountdown` + `<TurnTimer>` flash red < 5s on the client. Tests: `turnDeadlineService.spec.ts`.
 - [x] **Game-specific timeout auto-actions.** Hold'em hard-folds; 5cd folds in betting rounds and stands pat (`discard []`) during the draw phase; blackjack picks `stay` when legal, falls back to engine.aiAction in `awaiting_bets` / `insurance_offered`.
@@ -53,7 +55,7 @@ Threat model: ordinary players who would cheat or grief if they could (not natio
 
 - [x] **(CRITICAL) Slots missing advisory lock.** Fixed — `submitSlotsAction` now acquires `pg_advisory_xact_lock(handId)` and re-reads state under the lock, same pattern as the other four engines.
 - [x] **(HIGH) Zod schemas missing for 4 of 5 engines.** Fixed — `FiveCardDrawStateSchema`, `HoldemStateSchema`, `SlotsStateSchema`, `RouletteStateSchema` now live in `state.schema.ts` next to each engine's `types.ts`. Shared `ActorStatusSchema` / `HandRankSchema` in `engines/poker/shared/schemas.ts`. Every `parseState` now `.parse()`s the row instead of casting.
-- [ ] **(HIGH) Rate limiting missing on chat / actions / room create / invitation accept.** `chat.server.ts` accepts unlimited messages per user; the room action handler accepts unlimited action submits per second; `_index.tsx` lets a user create rooms without throttle. **Fix:** simplest — per-user per-route token bucket in memory (move to Redis when we go multi-instance). Pick thresholds together when the user is back.
+- [x] **(HIGH) Rate limiting missing on chat / actions / room create / invitation accept.** Fixed — new `app/lib/rateLimit.server.ts` is a sliding-window counter (in-memory Map, auto-cleans on next check). Thresholds: chat 5/10s per (user, room); game-action 2/s per (user, room); room-create 5/hr per user; invite-accept 10/min per user. Rejected requests throw `Response(429, { 'Retry-After': N })`. Replace storage with Redis when we go multi-instance (the surface stays identical).
 - [ ] **(MEDIUM) No concurrent-seat cap per user.** Nothing prevents a user from accepting invitations into thousands of rooms and hoarding seats forever. **Fix:** check seat count in `acceptInvitation` and refuse above a threshold (50? 100?).
 - [x] **(LOW) Idempotency keys not used on settlement.** Fixed — every settle path (blackjack main + insurance, 5cd submit + timeout, Hold'em submit + timeout, roulette spin, slots) now passes `idempotencyKey: \`settle:${slotId}\`` (slot ids are UUIDs minted per hand, no collisions). A retried settle returns the existing row instead of double-crediting.
 - [ ] **(LOW) Session revocation.** Sessions are cookie-only; a leaked cookie lives 30 days. If/when we add a session table, check it on every request. Acceptable for friends-only play.
@@ -76,7 +78,7 @@ Threat model: ordinary players who would cheat or grief if they could (not natio
   - Slots (`engines/slots/`) — single-seat, 3 reels of 5 symbols, three-of-a-kind + two-sevens payouts.
   - Roulette (`engines/roulette/`) — European single-zero (0-36), 13 bet kinds (straight + 12 outside), multi-player. Standard rectangular betting felt rendered as a clickable grid (0 + 3×12 numbers + 2:1 column triggers + dozens + outside-bet row). "Your bets" panel inside the form lists existing wagers with colored swatches so the user doesn't accidentally double-bet.
   - Baccarat (`engines/baccarat/`) — Punto Banco. 8-deck shoe, two hands (Player + Banker) dealt by the engine, three bets (Player 1:1, Banker 0.95:1 with 5% commission floor-rounded, Tie 8:1). Full third-card tableau as a lookup function, exhaustively unit-tested.
-- [x] **E2E tests.** Playwright + chromium. `e2e/global-setup.ts` bootstraps an isolated `db_webcasino_test` database (create-if-missing, `prisma migrate deploy`, truncate-all) on every run, and `webServer.env` passes `PORT=5274`, `DATABASE_URL=...test...`, `E2E_AUTH_BYPASS=1`, `TURN_DURATION_MS=2000` to a freshly-spawned dev server so it can coexist with a developer's local `npm run dev` on 5273. `vite.config.ts` reads `PORT` from env to support this. A test-only `/test-auth/login` route (refuses unless `E2E_AUTH_BYPASS=1` AND `NODE_ENV !== 'production'`) lets the auth fixture skip Google OAuth. 20 specs across `landing.spec.ts`, `room.spec.ts`, `new-games.spec.ts`, and `recent-features.spec.ts` (timeouts, sit-out, seat-change, kick, room-name reuse, baccarat). Multi-user flows use `browser.newContext()` + the test-auth route for a second user. Runs in ~20s locally via `npm run e2e`; idempotent across repeated runs (no state pollution).
+- [x] **E2E tests.** Playwright + chromium. `e2e/global-setup.ts` bootstraps an isolated `db_webcasino_test` database (create-if-missing, `prisma migrate deploy`, truncate-all) on every run, and `webServer.env` passes `PORT=5274`, `DATABASE_URL=...test...`, `E2E_AUTH_BYPASS=1`, `TURN_DURATION_MS=2000` to a freshly-spawned dev server so it can coexist with a developer's local `npm run dev` on 5273. `vite.config.ts` reads `PORT` from env to support this. A test-only `/test-auth/login` route (refuses unless `E2E_AUTH_BYPASS=1` AND `NODE_ENV !== 'production'`) lets the auth fixture skip Google OAuth. 21 specs across `landing.spec.ts`, `room.spec.ts`, `new-games.spec.ts`, and `recent-features.spec.ts` (timeouts, sit-out, seat-change, kick, room-name reuse, baccarat, rate-limit). Multi-user flows use `browser.newContext()` + the test-auth route for a second user. Runs in ~50s locally via `npm run e2e`; idempotent across repeated runs (no state pollution).
 - [x] **Room archival.** Creator-only soft-delete via `archiveRoom` in `tableLifecycle.server.ts` — refuses mid-hand, sets `casino_table.archived_at = now()`. Hidden from `listUserRooms`, `listUserInvitations`, `joinViaToken`, `acceptInvitation`, `startHand`, `switchRoomGame`, the room loader (redirects to landing), and the SSE events route. Historical hand/chat/transaction data is preserved. Small "✕ Close room" button in the room header (creator-only, JS confirm prompt). Future "show archived" toggle would relax the `archived_at IS NULL` filter on the list queries.
 
 ### Open backlog from this batch
@@ -141,7 +143,7 @@ Threat model: ordinary players who would cheat or grief if they could (not natio
 
 ## Tooling & DX
 
-- [x] **Add unit tests.** Vitest + fast-check. 329 specs across 19 files (each engine + most server-side libs). Test file convention: `*.spec.ts`.
+- [x] **Add unit tests.** Vitest + fast-check. 337 specs across 20 files (each engine + most server-side libs). Test file convention: `*.spec.ts`.
 - [x] **Add E2E tests.** See "Multiplayer + game variety".
 - [x] **Add CI.** `.github/workflows/ci.yml` runs `npm ci`, `typecheck`, `lint`, `format:check`, and `test` on push to main and on PRs.
 - [x] **Add Prettier.** `.prettierrc.json` sets `singleQuote`, `trailingComma: 'all'`, `printWidth: 100`. `format:check` runs in CI.
