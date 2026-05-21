@@ -453,6 +453,9 @@ async function applySettlement(
         amount: credit,
         gamePlayerId: ownerHandSeatId(state, order.playerId),
         note: `settle:${order.reason}`,
+        // Idempotency: a retried settle on the same slot is a no-op,
+        // not a double-credit. Slot ids are UUIDs minted per hand.
+        idempotencyKey: `settle:${order.playerId}`,
       },
       tx,
     );
@@ -471,6 +474,7 @@ async function applySettlement(
             amount: 3 * player.insuranceBet,
             gamePlayerId: ownerHandSeatId(state, player.id),
             note: 'settle:insurance_win',
+            idempotencyKey: `settle:insurance:${player.id}`,
           },
           tx,
         );

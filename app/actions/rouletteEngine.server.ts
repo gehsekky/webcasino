@@ -225,6 +225,7 @@ export async function submitRouletteAction(params: {
             amount: credit,
             gamePlayerId: slot.id,
             note: `settle:${order.reason}`,
+            idempotencyKey: `settle:${slot.id}`,
           },
           tx,
         );

@@ -322,6 +322,7 @@ export async function submitPokerAction(params: {
             amount: credit,
             gamePlayerId: slot.id,
             note: `settle:${order.reason}`,
+            idempotencyKey: `settle:${slot.id}`,
           },
           tx,
         );
@@ -556,6 +557,7 @@ export async function firePokerTurnTimeout(handId: string): Promise<void> {
             amount: credit,
             gamePlayerId: slot.id,
             note: `settle:${order.reason}`,
+            idempotencyKey: `settle:${slot.id}`,
           },
           tx,
         );

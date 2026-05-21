@@ -160,6 +160,7 @@ export async function submitSlotsAction(params: {
           amount: winnings,
           gamePlayerId: params.handSeatId,
           note: `settle:${state.players[0].payoutKind ?? 'win'}`,
+          idempotencyKey: `settle:${params.handSeatId}`,
         },
         tx,
       );
