@@ -8,6 +8,7 @@ import BetForm from './BetForm';
 import InsuranceForm from './InsuranceForm';
 import OutcomeBanner from './OutcomeBanner';
 import ConnectionStatus from './ConnectionStatus';
+import SittingOutBanner from './SittingOutBanner';
 
 type HandViewProps = {
   /** Room this hand belongs to. Used for SSE subscription + back link. */
@@ -32,6 +33,12 @@ type HandViewProps = {
    * Split-sibling slots aren't in this map; resolve via parentSlotId.
    */
   participants: Record<string, { name: string; isAi: boolean }>;
+  /**
+   * True when the viewer's persistent room seat is currently flagged
+   * `sitting_out` — typically because they were auto-played in this or
+   * an earlier hand and haven't rejoined yet.
+   */
+  viewerSittingOut: boolean;
 };
 
 export default function HandView({
@@ -44,6 +51,7 @@ export default function HandView({
   viewerName,
   viewerBalance,
   participants,
+  viewerSittingOut,
 }: HandViewProps) {
   const { view, status } = useHandView(roomId, initialView);
   // After splitting, the viewer owns multiple slots. The "primary" slot is
@@ -104,7 +112,8 @@ export default function HandView({
         </div>
 
         <div className="pt-2">
-          {isSpectator && view.phase !== 'settled' && (
+          {viewerSittingOut && <SittingOutBanner />}
+          {isSpectator && !viewerSittingOut && view.phase !== 'settled' && (
             <p className="text-center text-emerald-200/80 italic">
               spectating — you join the next hand
             </p>

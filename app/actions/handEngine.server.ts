@@ -571,7 +571,10 @@ export async function fireBlackjackTurnTimeout(handId: string): Promise<void> {
   await prisma.$transaction(async (tx) => {
     await acquireHandLock(tx, handId);
 
-    const hand = await tx.hand.findUnique({ where: { id: handId } });
+    const hand = await tx.hand.findUnique({
+      where: { id: handId },
+      include: { casino_table: { select: { created_by: true } } },
+    });
     if (!hand) return; // hand vanished (room archive, etc.) — nothing to do
 
     const state: BlackjackState = BlackjackStateSchema.parse(hand.data);
@@ -621,6 +624,23 @@ export async function fireBlackjackTurnTimeout(handId: string): Promise<void> {
       sequence: seq,
       state_after: next,
     });
+
+    // Sit out the timed-out player for subsequent hands. Same exception
+    // as Hold'em / 5cd: room creator stays in rotation. Split siblings
+    // route through `ownerHandSeatId` because they're virtual slots
+    // without their own hand_seat row.
+    const ownerSlot = ownerHandSeatId(state, acting);
+    const actingSeat = await tx.hand_seat.findUnique({
+      where: { id: ownerSlot },
+      select: { seat_id: true, user_id: true },
+    });
+    const isCreator = actingSeat?.user_id === hand.casino_table.created_by;
+    if (actingSeat?.seat_id && !isCreator) {
+      await tx.seat.update({
+        where: { id: actingSeat.seat_id },
+        data: { sitting_out: true },
+      });
+    }
 
     // Cascade AI seats following the timed-out player.
     while (

@@ -243,6 +243,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       where: { id: user.id },
       select: { money: true },
     });
+    const viewerSeat = seats.find((s) => s.isViewer);
     return json({
       mode: 'hand_blackjack' as const,
       room: roomSummary,
@@ -253,6 +254,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       view,
       participants,
       chatMessages,
+      viewerSittingOut: viewerSeat?.sittingOut ?? false,
     });
   }
 
@@ -477,6 +479,7 @@ export default function RoomRoute() {
         viewerName={data.viewer.name}
         viewerBalance={data.viewer.balance}
         participants={data.participants}
+        viewerSittingOut={data.viewerSittingOut}
       />
     );
 

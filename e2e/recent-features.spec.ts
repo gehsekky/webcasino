@@ -213,3 +213,20 @@ test.describe('Turn timeout (5-Card Draw)', () => {
     await expect(authedPage.getByText(/You're sitting out/i)).toHaveCount(0);
   });
 });
+
+test.describe('Turn timeout (Blackjack)', () => {
+  // Same TURN_DURATION_MS=2000 override.
+
+  test('creator who times out is auto-played but does not sit out', async ({ authedPage }) => {
+    const roomName = `e2e-bj-creator-timeout-${Date.now()}`;
+    await createRoom(authedPage, { name: roomName, game: 'blackjack', seats: 2 });
+    await authedPage.getByRole('button', { name: /Start Hand/i }).click();
+
+    // Blackjack can timeout twice in one hand (awaiting_bets → playing),
+    // so we give a generous deadline for the hand to settle.
+    await expect(authedPage.getByText(/Hand complete/i)).toBeVisible({ timeout: 15_000 });
+
+    // Creator is exempt from sit-out — banner must not appear.
+    await expect(authedPage.getByText(/You're sitting out/i)).toHaveCount(0);
+  });
+});
