@@ -80,11 +80,11 @@ export async function createRoom(params: CreateRoomParams): Promise<CreateRoomRe
     throw new Response('invalid bet bounds', { status: 400 });
   }
 
-  // Per-creator uniqueness on name. The DB unique index is the hard
-  // enforcer; this check lets us return a friendly 409 instead of a
-  // Prisma constraint error.
+  // Per-creator uniqueness on name, scoped to active (non-archived)
+  // rooms — the DB partial unique index enforces the same scope. This
+  // pre-check just returns a friendlier 409 than the constraint error.
   const dupe = await prisma.casino_table.findFirst({
-    where: { created_by: params.creator.id, name: trimmedName },
+    where: { created_by: params.creator.id, name: trimmedName, archived_at: null },
     select: { id: true },
   });
   if (dupe) {

@@ -75,7 +75,11 @@ model casino_table {
   table_invitation table_invitation[]
   chat_message     chat_message[]
 
-  @@unique([created_by, name])
+  /// `(created_by, name)` uniqueness is enforced by a partial index
+  /// (`WHERE archived_at IS NULL`) managed in raw SQL — see migration
+  /// `20260525000000_room_name_partial_unique`. Partial indexes aren't
+  /// expressible in Prisma's `@@unique`, so this is left out here and
+  /// pre-checked in `createRoom` for a friendlier 409.
   @@index([created_by, archived_at])
 }
 
