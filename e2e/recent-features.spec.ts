@@ -193,3 +193,23 @@ test.describe("Turn timeout (Hold'em)", () => {
     await expect(authedPage.getByText(/You're sitting out/i)).toHaveCount(0);
   });
 });
+
+test.describe('Turn timeout (5-Card Draw)', () => {
+  // Same TURN_DURATION_MS=2000 override.
+
+  test('creator who times out is auto-folded but does not sit out', async ({ authedPage }) => {
+    const roomName = `e2e-poker-creator-timeout-${Date.now()}`;
+    // 5cd requires 2+ seats.
+    await createRoom(authedPage, { name: roomName, game: 'poker', seats: 2 });
+    await authedPage.getByRole('button', { name: /Start Hand/i }).click();
+
+    await expect(authedPage.getByRole('timer')).toBeVisible({ timeout: 10_000 });
+
+    // Auto-fold lands; heads-up means the AI wins by walkover and the
+    // hand reaches `settled` (label: "Hand complete").
+    await expect(authedPage.getByText(/Hand complete/i)).toBeVisible({ timeout: 10_000 });
+
+    // Creator is exempt from sit-out.
+    await expect(authedPage.getByText(/You're sitting out/i)).toHaveCount(0);
+  });
+});

@@ -161,6 +161,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   if (handStateType === 'fivecarddraw') {
     const state = latest.data as unknown as FiveCardDrawState;
     const view = fiveCardDrawEngine.viewFor(state, projectionTarget);
+    const viewerSeat = seats.find((s) => s.isViewer);
     return json({
       mode: 'hand_poker' as const,
       room: roomSummary,
@@ -171,6 +172,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       view,
       participants,
       chatMessages,
+      viewerSittingOut: viewerSeat?.sittingOut ?? false,
     });
   }
 
@@ -423,6 +425,7 @@ export default function RoomRoute() {
         initialView={data.view as unknown as FiveCardDrawView}
         viewerName={data.viewer.name}
         participants={data.participants}
+        viewerSittingOut={data.viewerSittingOut}
       />
     ) : data.mode === 'hand_holdem' ? (
       <HoldemHandView

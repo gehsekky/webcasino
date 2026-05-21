@@ -5,6 +5,7 @@ import PokerSeat from './PokerSeat';
 import PokerActionArea from './PokerActionArea';
 import PokerOutcomeBanner from './PokerOutcomeBanner';
 import ConnectionStatus from './ConnectionStatus';
+import SittingOutBanner from './SittingOutBanner';
 
 type PokerHandViewProps = {
   /** Room this hand belongs to. Used for SSE subscription + back link. */
@@ -21,6 +22,12 @@ type PokerHandViewProps = {
   viewerName: string;
   /** hand_seat.id → {name, isAi} for each seat in this hand. */
   participants: Record<string, { name: string; isAi: boolean }>;
+  /**
+   * True when the viewer's persistent room seat is currently flagged
+   * `sitting_out` — typically because they were auto-folded in this or
+   * an earlier hand and haven't rejoined yet.
+   */
+  viewerSittingOut: boolean;
 };
 
 const PHASE_LABEL: Record<FiveCardDrawView['phase'], string> = {
@@ -41,6 +48,7 @@ export default function PokerHandView({
   initialView,
   viewerName,
   participants,
+  viewerSittingOut,
 }: PokerHandViewProps) {
   const { view, status } = usePokerView(roomId, initialView);
 
@@ -90,7 +98,8 @@ export default function PokerHandView({
         </div>
 
         <div className="pt-2">
-          {isSpectator && view.phase !== 'settled' && (
+          {viewerSittingOut && <SittingOutBanner />}
+          {isSpectator && !viewerSittingOut && view.phase !== 'settled' && (
             <p className="text-center text-emerald-200/80 italic">
               spectating — you join the next hand
             </p>
