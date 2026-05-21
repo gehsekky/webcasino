@@ -217,6 +217,7 @@ function BetForm({
             step={1}
             value={amount}
             onChange={(e) => setAmount(parseInt(e.target.value, 10) || 0)}
+            aria-describedby="slots-bounds"
             className="flex-1 min-w-0 bg-transparent text-white px-3 py-2 text-lg tabular-nums focus:outline-none"
             required
           />
@@ -229,7 +230,7 @@ function BetForm({
           {submitting ? 'spinning…' : cantAfford ? 'no funds' : 'Spin'}
         </button>
       </div>
-      <p className="text-xs text-emerald-300/80">
+      <p id="slots-bounds" className="text-xs text-emerald-300/80">
         min ${min} · max ${max} · balance ${balance.toLocaleString()}
       </p>
     </fetcher.Form>

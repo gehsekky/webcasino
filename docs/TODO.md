@@ -100,7 +100,7 @@ Threat model: ordinary players who would cheat or grief if they could (not natio
 - [ ] **(MEDIUM) Heading hierarchy broken.** Pages have no `h1`; seat rows mix `h2` (PlayerSection) and `h3` (PokerSeat, RouletteHandView). **Fix:** add an h1 to each game's hand view, demote seats to h3 consistently.
 - [ ] **(MEDIUM) Chat timestamps inaccessible.** `ChatPane.tsx:129-136` defers the time until hydration, leaving SR with empty text pre-hydrate. Also only `title` is set, no `aria-label`. **Fix:** always render a text node (ISO fallback OK), add `aria-label="Sent at HH:MM"` to the `<time>`.
 - [ ] **(LOW) Avatar gear-glyph clarity.** AI seats render `⚙` with `aria-hidden`; SR relies on the parent label including "(bot)". Verify all callsites label correctly. Optionally add a visible "(AI)" suffix on player rows.
-- [ ] **(LOW) Bet-amount inputs need `aria-describedby`.** Min/max/balance text is rendered nearby but isn't programmatically associated with the input. **Fix:** wrap the constraint text in an `id`'d element and reference it.
+- [x] **(LOW) Bet-amount inputs need `aria-describedby`.** Done — roulette + slots inputs now reference `id`'d constraint paragraphs. Poker bet/raise inputs don't have visible constraint text (constraints live as `min`/`max` attrs); skipped.
 
 ## Type safety & data model
 

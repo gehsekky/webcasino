@@ -370,6 +370,7 @@ function BetForm({
             step={1}
             value={amount}
             onChange={(e) => setAmount(parseInt(e.target.value, 10) || 0)}
+            aria-describedby="bet-bounds"
             className="w-24 rounded bg-emerald-950 text-white border border-emerald-700 px-2 py-2 text-sm tabular-nums"
           />
         </div>
@@ -382,7 +383,7 @@ function BetForm({
           {submitting ? '…' : selected ? `Place — ${describeBet(selected)}` : 'Select a bet'}
         </button>
 
-        <p className="text-xs text-emerald-300/80 ml-auto">
+        <p id="bet-bounds" className="text-xs text-emerald-300/80 ml-auto">
           min ${min} · max ${max} · balance ${balance.toLocaleString()}
         </p>
       </div>
