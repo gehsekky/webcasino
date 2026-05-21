@@ -49,6 +49,7 @@ Threat model: ordinary players who would cheat or grief if they could (not natio
 - [ ] **(MEDIUM) No concurrent-seat cap per user.** Nothing prevents a user from accepting invitations into thousands of rooms and hoarding seats forever. **Fix:** check seat count in `acceptInvitation` and refuse above a threshold (50? 100?).
 - [x] **(LOW) Idempotency keys not used on settlement.** Fixed — every settle path (blackjack main + insurance, 5cd submit + timeout, Hold'em submit + timeout, roulette spin, slots) now passes `idempotencyKey: \`settle:${slotId}\`` (slot ids are UUIDs minted per hand, no collisions). A retried settle returns the existing row instead of double-crediting.
 - [ ] **(LOW) Session revocation.** Sessions are cookie-only; a leaked cookie lives 30 days. If/when we add a session table, check it on every request. Acceptable for friends-only play.
+- [ ] **(MEDIUM, for online stranger play) Provably-fair commit-reveal.** RNG (`app/engines/rng.ts`) uses Node's `crypto.randomInt` — bias-free CSPRNG, real-deck odds. But the server controls the deck end-to-end: a dishonest operator could deal themselves wins and nobody could prove it. Mitigation is commit-reveal — see "Destination state" entry below for full mechanism. Acceptable for friends among friends; required before launching to strangers.
 
 ## Multiplayer + game variety
 
@@ -199,7 +200,14 @@ These were skipped during the package-update pass because each is a real migrati
 
 Surfaced during the multi-game / multiplayer-capable architecture review. Each becomes urgent only after the production-readiness work is in place, but worth listing so they aren't forgotten.
 
-- [ ] **Provably-fair commit-reveal UI.** Server commits `hash(seed)` before a hand and reveals `seed` after; client can verify the shuffle. Required for any "fair play" claim, table-stakes for crypto-casino-style trust. Now applies to all five games' RNG, not just card shuffles.
+- [ ] **Provably-fair commit-reveal.** Without this, players have to trust the operator's word that the deck wasn't stacked — the existing CSPRNG (`crypto.randomInt`) is bias-free but server-controlled. Implementation sketch:
+  1. **Server seed.** Before dealing, generate `serverSeed` (32 random bytes). Publish `serverSeedHash = sha256(serverSeed)` in `hand.data` (and broadcast it in the `HAND_INITIALIZED` event).
+  2. **Client nonces.** Each participating client posts a `clientNonce` (random bytes) before the first card lands — collect them in the start tx. This makes the deck unpredictable even to the server before reveal.
+  3. **Deterministic shuffle.** Replace `defaultRng` for the hand with a seeded RNG derived from `hkdf(serverSeed || clientNonces || handId)`. Fisher-Yates against that RNG is fully reproducible from the inputs.
+  4. **Reveal.** When the hand settles, publish `serverSeed` and the ordered `clientNonces` in the settlement event. Anyone can re-derive the deck, replay every dealt card, and verify `sha256(serverSeed) === serverSeedHash`.
+  5. **Audit UI.** Small "verify this hand" panel that fetches the events, re-runs the shuffle in-browser, and shows a green check (or red) per drawn card.
+
+  Scope notes: applies to all five games' RNG — card shuffles for blackjack / 5cd / Hold'em, reel rolls for slots, wheel result for roulette. The engines already take an `RNG` interface, so the swap is one composition root change once the seed-derivation primitive is built. Audit UI is the bigger lift.
 - [ ] **KYC / AML / geo-fencing.** Identity verification, source-of-funds checks, jurisdiction enforcement. Mandatory the moment real money is involved.
 - [ ] **Anti-collusion forensics for poker.** IP/device/account-cluster detection, hand-history pattern analysis, chip-dumping detection. Only matters once multi-human poker exists.
 - [ ] **Observability — structured logging, tracing, metrics.** Per-game-type latency, money-flow dashboards, alerting on ledger discrepancies. Required to operate at any real volume.
