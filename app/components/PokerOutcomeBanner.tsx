@@ -70,12 +70,16 @@ export default function PokerOutcomeBanner({
           currentGame={roomGameType}
           maxSeats={roomMaxSeats}
           isRoomCreator={isRoomCreator}
+          tone={viewerWon ? 'light' : 'dark'}
         />
         {isRoomCreator ? (
           <Form method="post" action={`/rooms/${roomId}`} className="inline-block">
             <AuthenticityTokenInput />
             <input type="hidden" name="intent" value="start_hand" />
-            <button type="submit" className={buttonClass({ variant: 'primary' })}>
+            <button
+              type="submit"
+              className={buttonClass({ variant: viewerWon ? 'success' : 'primary' })}
+            >
               Start Next Hand
             </button>
           </Form>

@@ -1,5 +1,5 @@
 import { Form, Link, useFetcher } from '@remix-run/react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react';
 import {
   BET_LABEL,
@@ -41,6 +41,15 @@ const NUMBER_ROWS: number[][] = [
 ];
 /** Column bet kind per row of the number grid (top → bottom). */
 const COLUMN_BET_FOR_ROW: BetKind[] = ['column3', 'column2', 'column1'];
+
+/**
+ * localStorage key for the viewer's last roulette wager amount. Same
+ * pattern as the blackjack BetForm — lets the user keep clicking
+ * "Place — Red" with a stable amount instead of retyping every time.
+ * Survives page reload and (since amount is hand-agnostic) carries
+ * across hand transitions.
+ */
+const LAST_AMOUNT_STORAGE_KEY = 'webcasino:lastRouletteAmount';
 
 type SelectedBet = { kind: BetKind; number?: number };
 
@@ -227,25 +236,65 @@ function PlayerRow({
   slot: RouletteView['players'][number];
 }) {
   return (
-    <section className="rounded-xl bg-emerald-900/40 ring-1 ring-emerald-700/40 p-3 flex items-center gap-3">
+    <section className="rounded-xl bg-emerald-900/40 ring-1 ring-emerald-700/40 p-3 flex items-start gap-3">
       <Avatar name={name} isAi={isAi} size={40} />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-white">{name}</p>
-        <p className="text-xs text-emerald-200/70 tabular-nums">
-          staked ${slot.totalStake.toLocaleString()} · {slot.bets.length} bet
-          {slot.bets.length === 1 ? '' : 's'}
-          {slot.winnings > 0 && (
-            <>
-              {' · '}
-              <span className="text-yellow-300 font-semibold">
-                won ${slot.winnings.toLocaleString()}
-              </span>
-            </>
-          )}
-        </p>
+      <div className="flex-1 min-w-0 space-y-1.5">
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="text-sm font-semibold text-white truncate">{name}</p>
+          <p className="text-xs text-emerald-200/70 tabular-nums shrink-0">
+            staked ${slot.totalStake.toLocaleString()} · {slot.bets.length} bet
+            {slot.bets.length === 1 ? '' : 's'}
+            {slot.winnings > 0 && (
+              <>
+                {' · '}
+                <span className="text-yellow-300 font-semibold">
+                  won ${slot.winnings.toLocaleString()}
+                </span>
+              </>
+            )}
+          </p>
+        </div>
+        {slot.bets.length > 0 && (
+          <ul className="flex flex-wrap gap-1.5">
+            {slot.bets.map((b) => (
+              <li key={b.id}>
+                <BetChip bet={b} />
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </section>
   );
+}
+
+/**
+ * Compact pill rendering of a single bet — used in player rows so the
+ * whole table can see what every seat has on the felt. Winning bets
+ * (post-spin) flip to a gold background. Format keeps it short:
+ *   - straight bets: the number only ("17") — the swatch shows the
+ *     color already
+ *   - outside / dozen / column bets: the label ("RED", "1st 12")
+ */
+function BetChip({ bet }: { bet: RouletteBet }) {
+  const won = bet.payout > 0;
+  const base = won
+    ? 'bg-yellow-400 text-slate-900 ring-1 ring-yellow-300'
+    : 'bg-emerald-950/60 text-emerald-100 ring-1 ring-emerald-800/60';
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums ${base}`}
+    >
+      <span aria-hidden="true" className={`w-2 h-2 rounded-full ${swatchForBet(bet)}`} />
+      <span>{describeBetCompact(bet)}</span>
+      <span>${bet.amount}</span>
+    </span>
+  );
+}
+
+function describeBetCompact(b: RouletteBet): string {
+  if (b.kind === 'straight') return `${b.number}`;
+  return BET_LABEL[b.kind];
 }
 
 function BetForm({
@@ -267,10 +316,35 @@ function BetForm({
   const submitting = fetcher.state !== 'idle';
   const invalid = !selected || amount < min || amount > max || amount > balance;
 
+  // After hydration, prefer the last-amount from localStorage if it fits
+  // within the table's bounds. SSR-safe: localStorage read happens in
+  // effect, not during render.
+  const cap = Math.min(max, balance);
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(LAST_AMOUNT_STORAGE_KEY);
+      if (saved === null) return;
+      const parsed = parseInt(saved, 10);
+      if (!Number.isFinite(parsed)) return;
+      setAmount(Math.min(Math.max(parsed, min), cap));
+    } catch {
+      /* localStorage unavailable (private mode / quota) — keep default */
+    }
+  }, [min, cap]);
+
+  const handleSubmit = () => {
+    try {
+      window.localStorage.setItem(LAST_AMOUNT_STORAGE_KEY, String(amount));
+    } catch {
+      /* ignore quota/permission errors */
+    }
+  };
+
   return (
     <fetcher.Form
       method="post"
       action={`/rooms/${roomId}`}
+      onSubmit={handleSubmit}
       className="rounded-xl bg-emerald-900/40 ring-1 ring-emerald-700/40 p-3 space-y-3"
     >
       <AuthenticityTokenInput />
@@ -626,12 +700,13 @@ function SettledPanel({
           currentGame={roomGameType}
           maxSeats={roomMaxSeats}
           isRoomCreator={isRoomCreator}
+          tone={won ? 'light' : 'dark'}
         />
         {isRoomCreator ? (
           <Form method="post" action={`/rooms/${roomId}`} className="inline-block">
             <AuthenticityTokenInput />
             <input type="hidden" name="intent" value="start_hand" />
-            <button type="submit" className={buttonClass({ variant: 'primary' })}>
+            <button type="submit" className={buttonClass({ variant: won ? 'success' : 'primary' })}>
               Start Next Round
             </button>
           </Form>

@@ -27,6 +27,14 @@ type GameSwitcherProps = {
   maxSeats: number;
   /** Only creators see the controls; everyone else sees the read-only label. */
   isRoomCreator: boolean;
+  /**
+   * Visual context. `'dark'` (default) suits the project's emerald
+   * surfaces; `'light'` is for placement inside a yellow win banner so
+   * the inline text stays readable. Only affects label/text colors —
+   * the select and button have their own dark backgrounds and contrast
+   * fine either way.
+   */
+  tone?: 'dark' | 'light';
 };
 
 const SUCCESS_FLASH_MS = 1800;
@@ -45,7 +53,10 @@ export default function GameSwitcher({
   currentGame,
   maxSeats,
   isRoomCreator,
+  tone = 'dark',
 }: GameSwitcherProps) {
+  const labelColor = tone === 'light' ? 'text-slate-900/80' : 'text-emerald-200/80';
+  const valueColor = tone === 'light' ? 'text-slate-900' : 'text-white';
   const fetcher = useFetcher();
   const submitting = fetcher.state !== 'idle';
 
@@ -65,8 +76,8 @@ export default function GameSwitcher({
 
   if (!isRoomCreator) {
     return (
-      <p className="text-xs uppercase tracking-wider text-emerald-200/80">
-        Game: <span className="font-semibold text-white">{GAME_LABEL[currentGame]}</span>
+      <p className={`text-xs uppercase tracking-wider ${labelColor}`}>
+        Game: <span className={`font-semibold ${valueColor}`}>{GAME_LABEL[currentGame]}</span>
       </p>
     );
   }
@@ -79,7 +90,7 @@ export default function GameSwitcher({
     >
       <AuthenticityTokenInput />
       <input type="hidden" name="intent" value="switch_game" />
-      <label htmlFor="switch-game-type" className="uppercase tracking-wider text-emerald-200/80">
+      <label htmlFor="switch-game-type" className={`uppercase tracking-wider ${labelColor}`}>
         Game
       </label>
       <select

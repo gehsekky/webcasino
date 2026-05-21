@@ -65,6 +65,7 @@ export default function OutcomeBanner({
     return (
       <BannerShell
         tone="bg-slate-700 text-white"
+        winning={false}
         roomId={roomId}
         isRoomCreator={isRoomCreator}
         roomGameType={roomGameType}
@@ -82,6 +83,7 @@ export default function OutcomeBanner({
     return (
       <BannerShell
         tone={toneFor(only.outcome.net)}
+        winning={only.outcome.net > 0}
         roomId={roomId}
         isRoomCreator={isRoomCreator}
         roomGameType={roomGameType}
@@ -96,6 +98,7 @@ export default function OutcomeBanner({
   return (
     <BannerShell
       tone={toneFor(totalNet)}
+      winning={totalNet > 0}
       roomId={roomId}
       isRoomCreator={isRoomCreator}
       roomGameType={roomGameType}
@@ -121,6 +124,7 @@ export default function OutcomeBanner({
 
 function BannerShell({
   tone,
+  winning,
   roomId,
   isRoomCreator,
   roomGameType,
@@ -128,6 +132,9 @@ function BannerShell({
   children,
 }: {
   tone: string;
+  /** True when the banner uses the yellow win-tone background. Children
+   *  switch to dark text + a non-yellow CTA so they stay readable. */
+  winning: boolean;
   roomId: string;
   isRoomCreator: boolean;
   roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette';
@@ -143,12 +150,16 @@ function BannerShell({
           currentGame={roomGameType}
           maxSeats={roomMaxSeats}
           isRoomCreator={isRoomCreator}
+          tone={winning ? 'light' : 'dark'}
         />
         {isRoomCreator ? (
           <Form method="post" action={`/rooms/${roomId}`} className="inline-block">
             <AuthenticityTokenInput />
             <input type="hidden" name="intent" value="start_hand" />
-            <button type="submit" className={buttonClass({ variant: 'primary' })}>
+            <button
+              type="submit"
+              className={buttonClass({ variant: winning ? 'success' : 'primary' })}
+            >
               Start Next Hand
             </button>
           </Form>

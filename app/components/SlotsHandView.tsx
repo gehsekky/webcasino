@@ -273,9 +273,10 @@ function OutcomePanel({
           currentGame={roomGameType}
           maxSeats={roomMaxSeats}
           isRoomCreator={isRoomCreator}
+          tone={won ? 'light' : 'dark'}
         />
         {isRoomCreator ? (
-          <SpinAgain roomId={roomId} />
+          <SpinAgain roomId={roomId} winning={won ?? false} />
         ) : (
           <p className="text-sm italic opacity-80">
             waiting for the room creator to start the next spin…
@@ -289,12 +290,12 @@ function OutcomePanel({
   );
 }
 
-function SpinAgain({ roomId }: { roomId: string }) {
+function SpinAgain({ roomId, winning }: { roomId: string; winning: boolean }) {
   return (
     <Form method="post" action={`/rooms/${roomId}`} className="inline-block">
       <AuthenticityTokenInput />
       <input type="hidden" name="intent" value="start_hand" />
-      <button type="submit" className={buttonClass({ variant: 'primary' })}>
+      <button type="submit" className={buttonClass({ variant: winning ? 'success' : 'primary' })}>
         Spin Again
       </button>
     </Form>
