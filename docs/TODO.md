@@ -3,13 +3,26 @@
 Actionable items from the architecture and best-practices review.
 Roughly ordered by ROI within each section.
 
-> **Current focus (2026-05-20):** Five games live (blackjack, 5-card
-> draw, Texas Hold'em, slots, roulette) on the multiplayer room model
-> with chat, room naming, room archival, and mid-room game switching.
-> UI is being iterated actively — the earlier "defer all UI" gate is
-> lifted. Next-up candidates: production-readiness items (`/healthz`,
-> structured logs, Sentry), smarter Hold'em AI, "show archived rooms"
-> filter, and the deferred major-version migrations.
+> **Current focus (2026-05-21):** Five games live with turn timeouts
+> (30s clock, auto-fold in poker games, auto-stay in blackjack),
+> auto-fold-then-sit-out flow for Hold'em (creator exempted), advisory
+> locks across all but slots, partial-unique room names, and creator-
+> only enforcement on roulette spin. Three audits just landed (e2e
+> coverage, a11y, security) — findings are listed below as actionable
+> items, ordered by severity within each section. The big unresolved
+> work is rate limiting, Zod schemas for the four non-blackjack engines,
+> and the modal-focus-trap a11y gap.
+
+## Recently shipped (since last TODO update)
+
+- [x] **Player turn timeouts.** 30s clock per human turn (`TURN_DURATION_MS`); engine state carries `turnDeadlineAt`; in-process scheduler arms a timer per hand; fires through `engine.aiAction`-style auto-actions while serialized by `pg_advisory_xact_lock(handId)`. Boot reconciliation walks unsettled hands on `entry.server` and re-arms / fires-now as appropriate. `useCountdown` + `<TurnTimer>` flash red < 5s on the client. Tests: `turnDeadlineService.spec.ts`.
+- [x] **Game-specific timeout auto-actions.** Hold'em hard-folds; 5cd folds in betting rounds and stands pat (`discard []`) during the draw phase; blackjack picks `stay` when legal, falls back to engine.aiAction in `awaiting_bets` / `insurance_offered`.
+- [x] **AI cascade at hand start.** When the first to act after blinds (Hold'em) / ante (5cd) is an AI seat, the start tx now cascades AI turns through to a human or terminal so the table never deadlocks on an AI prefix.
+- [x] **Sit-out flow (Hold'em).** New `seat.sitting_out boolean` (migration `20260524000000`). Hold'em timeout fires set the flag; `tableLifecycle.startHand` filters out sitting-out seats so their position becomes an AI fill; "Rejoin next hand" banner in the Hold'em hand view + roster chip + button in the lobby. Room creator is exempt (parking the creator deadlocks the flow since only they can start hands).
+- [x] **Roulette race + spin authz.** `submitRouletteAction` now acquires `pg_advisory_xact_lock(handId)` and re-reads state under the lock; the route action enforces `room.created_by === user.id` for `spin` (the UI button was already hidden but the server didn't check). Closes the place_bet/spin interleave + the hand-crafted-POST bypass.
+- [x] **Advisory-lock helper fix.** `pg_advisory_xact_lock` returns `void`, so `$queryRawUnsafe` was crashing with a deserialization error — switched to `$executeRawUnsafe` across all engines.
+- [x] **Room name partial unique.** Replaced the `(created_by, name)` unique with a partial index `WHERE archived_at IS NULL` (migration `20260525000000_room_name_partial_unique`, raw SQL — Prisma's `@@unique` doesn't take a WHERE clause; schema.prisma documents this). Archived rooms now release their name back to the creator.
+- [x] **CI: `.npmrc` with `legacy-peer-deps`.** `remix-utils@7.7` peer-deps zod@3 but the project uses zod@4; the lockfile was already resolved under legacy-peer-deps locally. Real fix is upgrading remix-utils to 9.x (drops zod peer dep), which requires React Router 7 — its own project (see "Deferred — major-version migrations").
 
 ## Critical correctness bugs
 
@@ -25,6 +38,17 @@ Roughly ordered by ROI within each section.
 - [x] **URL-based authorization.** `/game/$gamePlayerId` lets anyone with the UUID control that seat. **Now:** `requireSeat(request, gamePlayerId)` in `app/auth/guards.server.ts` enforces `game_player.user_id === sessionUser.id`. _(Done — task #3.)_
 - [x] **No bet validation.** `placeInitialBet` now validates `amount > 0` (positive integer), `amount <= gamePlayer.user.money`, and `minimumBet <= amount <= maximumBet`. Hard safety net: the atomic `UPDATE user SET money = money + delta WHERE money >= minRequired` in `recordMoneyTransaction` rejects any insufficient-funds debit. _(Done — task #4.)_
 - [x] **CSRF protection** on `<Form method="post">` flows. `remix-utils/csrf` wired in via `app/auth/csrf.server.ts` (signed cookie + signed-token validate). `app/root.tsx` loader commits a token and wraps children in `<AuthenticityTokenProvider>`; every form across `_index.tsx` and the form-rendering components includes `<AuthenticityTokenInput />`; every action route (`_index.tsx`, `rooms.$roomId.tsx`, `auth.$provider.tsx`, `auth.logout.tsx`) calls `csrf.validate(...)` and returns 403 on `CSRFError`.
+
+### Findings from the 2026-05-21 security audit
+
+Threat model: ordinary players who would cheat or grief if they could (not nation-state). Real money not yet involved. Audit covered authz, IDOR, action injection, money manipulation, state tampering, race conditions, XSS, session security, rate limiting, CSRF, test-auth bypass, SQL injection. No critical authorization gaps found beyond what's already been fixed.
+
+- [ ] **(CRITICAL) Slots missing advisory lock.** `app/actions/slotsEngine.server.ts:93-165` does the read-modify-write of `hand.data` without `pg_advisory_xact_lock` — every other engine has it now (`handEngine`, `pokerEngine`, `holdemEngine`, `rouletteEngine`). Concurrent spin / bet on the same hand could clobber state. **Fix:** drop in the same `acquire*HandLock` + re-read pattern. Drop-in.
+- [ ] **(HIGH) Zod schemas missing for 4 of 5 engines.** Only blackjack parses `hand.data` with `BlackjackStateSchema.parse()`. 5cd / Hold'em / slots / roulette cast through `as unknown as`. If the row gets corrupted or hand-edited, the wrapper crashes or silently misbehaves. **Fix:** mirror the blackjack pattern — write a Zod schema per engine state, parse on every read.
+- [ ] **(HIGH) Rate limiting missing on chat / actions / room create / invitation accept.** `chat.server.ts` accepts unlimited messages per user; the room action handler accepts unlimited action submits per second; `_index.tsx` lets a user create rooms without throttle. **Fix:** simplest — per-user per-route token bucket in memory (move to Redis when we go multi-instance). Pick thresholds together when the user is back.
+- [ ] **(MEDIUM) No concurrent-seat cap per user.** Nothing prevents a user from accepting invitations into thousands of rooms and hoarding seats forever. **Fix:** check seat count in `acceptInvitation` and refuse above a threshold (50? 100?).
+- [ ] **(LOW) Idempotency keys not used on settlement.** `recordMoneyTransaction` supports the key but only slots / roulette pre-settlement debits provide one. A network retry after settle could double-credit. **Fix:** add `idempotencyKey: \`settle:${handId}:${slotId}\`` to every settle path.
+- [ ] **(LOW) Session revocation.** Sessions are cookie-only; a leaked cookie lives 30 days. If/when we add a session table, check it on every request. Acceptable for friends-only play.
 
 ## Multiplayer + game variety
 
@@ -63,7 +87,20 @@ Roughly ordered by ROI within each section.
 
 - [x] **Win-banner contrast on yellow.** GameSwitcher's "Game: X" label and the "Start Next Hand / Round / Spin Again" button both inherited / used colors that washed out against the yellow win background (white-on-yellow, yellow-on-yellow). GameSwitcher now accepts a `tone: 'dark' | 'light'` prop; banners pass `tone="light"` when in the winning state and switch the Start button from `primary` (yellow) to `success` (green). Fix applied across all five game banners (blackjack OutcomeBanner, PokerOutcomeBanner, HoldemOutcomeBanner, RouletteHandView SettledPanel, SlotsHandView OutcomePanel).
 - [ ] **Tone-aware focus rings.** `buttonClass`'s focus ring is hardcoded yellow-400. On the yellow win banner the ring is mostly invisible (the 2px emerald-950 offset is the only visible cue). Thread the tone through `buttonClass` so winning-state buttons get a slate focus ring instead.
-- [ ] **Comprehensive a11y audit.** Spot-checks so far have been ad-hoc. Run an axe-core or Lighthouse a11y pass on the landing page, room view (each game), the chat pane, and the create-game modal. Areas to examine: keyboard tab order, focus traps in the modal, screen-reader announcements for SSE-driven updates (chat messages, hand transitions), color-only signaling on the roulette betting board (red/black bets distinguished by background color — text labels are present but the small swatches in `BetChip` may be hard to read with low color vision).
+- [x] **Comprehensive a11y review** (manual code-walk, 2026-05-21). Findings below by severity. Axe-core / Lighthouse run still TODO once a CI a11y job exists.
+
+### Findings from the 2026-05-21 a11y review
+
+- [ ] **(HIGH) Modal focus trap missing.** `CreateGameModal.tsx:25-251` has ESC handler + backdrop click but no focus trap; keyboard can tab into the page behind it, and focus restoration on close isn't explicit. **Fix:** use the native `<dialog>` element (browser handles the trap + ESC + return) or `react-focus-on`.
+- [ ] **(HIGH) Yellow win banner has invisible focus ring.** `app/lib/buttonStyle.ts:10` hardcodes `focus-visible:ring-yellow-400`; buttons inside the yellow win banner (PokerOutcomeBanner, RouletteHandView SettledPanel) get no visible focus. **Fix:** thread `tone` through `buttonClass` and swap to `ring-slate-900` (or similar high-contrast) for the `light` tone. *(Was already in TODO as "tone-aware focus rings" — now blocked on prioritization.)*
+- [ ] **(HIGH) Amber sit-out button contrast borderline.** `bg-amber-500 text-slate-900` on `bg-amber-900/40` banner background. Test ratio; if it fails WCAG AA, darken the button or border the banner.
+- [ ] **(MEDIUM) Turn timer aria-label doesn't update each tick.** `TurnTimer.tsx:21-24` sets `role="timer"` + `aria-live="polite"` but the label is static at mount. Screen readers don't hear the countdown. **Fix:** make label dynamic (`aria-label={\`${seconds} seconds remaining\`}`) or move the text into the live region.
+- [ ] **(MEDIUM) Roulette board buttons missing `aria-label`.** `RouletteHandView.tsx:478-643` — number cells and outside-bet buttons rely on text + color. SR users hear "button" with no bet context. **Fix:** add explicit labels like `aria-label="Straight bet on 17"`, `aria-label="Red outside bet"`.
+- [ ] **(MEDIUM) Sit-out state changes not announced.** Banners appear / disappear on flag flip with no live-region notice. **Fix:** wrap the sit-out banner in `role="status" aria-live="polite"` so SR hears the transition.
+- [ ] **(MEDIUM) Heading hierarchy broken.** Pages have no `h1`; seat rows mix `h2` (PlayerSection) and `h3` (PokerSeat, RouletteHandView). **Fix:** add an h1 to each game's hand view, demote seats to h3 consistently.
+- [ ] **(MEDIUM) Chat timestamps inaccessible.** `ChatPane.tsx:129-136` defers the time until hydration, leaving SR with empty text pre-hydrate. Also only `title` is set, no `aria-label`. **Fix:** always render a text node (ISO fallback OK), add `aria-label="Sent at HH:MM"` to the `<time>`.
+- [ ] **(LOW) Avatar gear-glyph clarity.** AI seats render `⚙` with `aria-hidden`; SR relies on the parent label including "(bot)". Verify all callsites label correctly. Optionally add a visible "(AI)" suffix on player rows.
+- [ ] **(LOW) Bet-amount inputs need `aria-describedby`.** Min/max/balance text is rendered nearby but isn't programmatically associated with the input. **Fix:** wrap the constraint text in an `id`'d element and reference it.
 
 ## Type safety & data model
 
@@ -100,6 +137,18 @@ Roughly ordered by ROI within each section.
 - [x] **Decide on Node version.** All three sources pinned to Node 22.12.
 - [ ] **Run e2e in CI.** Currently CI only runs unit tests. Wire `npm run e2e` into the workflow with a fresh Postgres service container (or per-job DB). Cleanup test users between runs.
 - [ ] **Hide the seed.sql from the runtime image.** Belongs only in the Postgres init dir; doesn't need to ship in the app image.
+
+### E2E coverage gaps from the 2026-05-21 audit
+
+Many recent features have no e2e coverage. Sizing notation: S = ~30min, M = couple hours, L = needs scaffolding work first. Timeout-based specs are blocked on making `TURN_DURATION_MS` env-overridable.
+
+- [ ] **(S, no blocker) Roulette spin: creator-only enforcement.** Non-creator submits `intent=submit&submit=spin`; expect 403.
+- [ ] **(S, no blocker) Room name reuse after archive.** Create "poker-night", archive, create "poker-night" again — should succeed (was blocked before the partial-unique migration).
+- [ ] **(S, no blocker) Turn timer renders + flashes red.** No server interaction needed — render a Hold'em hand, assert TurnTimer's DOM + the `< 5s` CSS class shows up near deadline. Could even mock-set `turnDeadlineAt` near now.
+- [ ] **(M, blocked) Hold'em creator never sits out on timeout.** Creator times out → seat.sitting_out stays false → next hand includes them. Blocked on making timeout duration env-overridable so the spec runs in <5s.
+- [ ] **(M, blocked) Sit-out + rejoin flow.** Non-creator times out → sitting-out chip + rejoin button visible → click rejoin → next hand includes them. Same blocker.
+- [ ] **(L, blocked) 5cd phase-specific timeouts.** Betting-round timeout → fold; draw-phase timeout → stand pat (`discard []`). Blocker + needs poker-phase tracking helpers in the test harness.
+- [ ] **(S) Make `TURN_DURATION_MS` env-overridable.** Read `process.env.TURN_DURATION_MS_OVERRIDE` (test-only) or `?duration=` query param on the test-auth route to set a short deadline. Unblocks the three M/L specs above.
 
 ## Production readiness
 
