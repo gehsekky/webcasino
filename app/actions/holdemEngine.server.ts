@@ -154,6 +154,72 @@ export async function startHoldemHand(params: {
       state_after: initialState as unknown as never,
     });
 
+    // If first-to-act after blinds is an AI seat, cascade in this tx
+    // until control lands on a human (or the hand goes terminal). Without
+    // this, an all-AI prefix in the action order would deadlock the table
+    // since AI seats have no turn-timeout to kick them.
+    const userMap = new Map<string, { id: string; is_ai: boolean }>(
+      handSeatIds.map((slotId, i) => {
+        const u = userById.get(params.participants[i].userId)!;
+        return [slotId, { id: u.id, is_ai: u.is_ai }];
+      }),
+    );
+    const isAI = (slotId: string) => userMap.get(slotId)?.is_ai === true;
+    let cursor: HoldemState = initialState;
+    while (!holdemEngine.isTerminal(cursor) && cursor.toAct !== null && isAI(cursor.toAct)) {
+      const acting = cursor.toAct;
+      const before = cursor;
+      const aiAction = holdemEngine.aiAction!(cursor, acting, defaultRng);
+      cursor = holdemEngine.applyAction(cursor, acting, aiAction, defaultRng);
+      await applyDiffs(before, cursor, userMap, tx, aiAction.kind);
+      const aiSeq = await appendHandEvent(
+        handId,
+        { action: aiAction.kind, actorId: acting, payload: aiAction },
+        tx,
+      );
+      pendingBroadcasts.push({
+        action: aiAction.kind,
+        actor_id: acting,
+        payload: aiAction,
+        sequence: aiSeq,
+        state_after: cursor as unknown as never,
+      });
+    }
+    if (holdemEngine.isTerminal(cursor)) {
+      for (const order of holdemEngine.settle(cursor)) {
+        const slot = cursor.players.find((p) => p.id === order.playerId);
+        if (!slot) continue;
+        const credit = slot.totalBet + order.delta;
+        if (credit <= 0) continue;
+        const u = userMap.get(slot.id);
+        if (!u) throw new Error(`startHoldemHand: unknown owner for slot ${slot.id}`);
+        await recordMoneyTransaction(
+          {
+            userId: u.id,
+            type: 'credit',
+            amount: credit,
+            gamePlayerId: slot.id,
+            note: `settle:${order.reason}`,
+          },
+          tx,
+        );
+      }
+    }
+    if (cursor !== initialState) {
+      cursor = {
+        ...cursor,
+        turnDeadlineAt: computeTurnDeadline({
+          toAct: cursor.toAct,
+          isHuman: (slotId) => userMap.get(slotId)?.is_ai === false,
+        }),
+      };
+      finalInitialState = cursor;
+      await tx.hand.update({
+        where: { id: handId },
+        data: { data: cursor as unknown as Prisma.JsonObject },
+      });
+    }
+
     return { handId };
   });
 
