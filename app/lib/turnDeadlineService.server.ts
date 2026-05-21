@@ -79,8 +79,16 @@ export const turnDeadlineService = globalThis.__turnDeadlineService;
 /**
  * Default human turn duration. 30s is long enough to think, short
  * enough to avoid griefing. Make per-room when someone asks.
+ *
+ * Env override: set `TURN_DURATION_MS` (positive integer, milliseconds)
+ * for fast e2e runs. Production must leave the env unset.
  */
-export const TURN_DURATION_MS = 30_000;
+export const TURN_DURATION_MS: number = (() => {
+  const raw = process.env.TURN_DURATION_MS;
+  if (!raw) return 30_000;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 30_000;
+})();
 
 /**
  * Compute the next deadline for a turn that just landed on a player.

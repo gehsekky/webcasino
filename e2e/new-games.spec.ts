@@ -48,11 +48,13 @@ test.describe('New games', () => {
   test('Roulette: create + start hand shows the betting board', async ({ authedPage }) => {
     await createRoomOf(authedPage, 'roulette', `e2e-roulette-${Date.now()}`, 1);
     await authedPage.getByRole('button', { name: /Start Hand/i }).click();
-    // The betting board renders standard outside-bet cells.
-    await expect(authedPage.getByRole('button', { name: /^RED$/ })).toBeVisible({
+    // The betting board renders standard outside-bet cells. After the
+    // a11y pass each cell's accessible name is its full bet description,
+    // e.g. "Red bet — pays 1:1" — match by prefix.
+    await expect(authedPage.getByRole('button', { name: /^Red bet/i })).toBeVisible({
       timeout: 5_000,
     });
-    await expect(authedPage.getByRole('button', { name: /^BLACK$/ })).toBeVisible();
+    await expect(authedPage.getByRole('button', { name: /^Black bet/i })).toBeVisible();
     // Place button is initially gated until a bet is selected.
     await expect(authedPage.getByRole('button', { name: /Select a bet/i })).toBeVisible();
   });

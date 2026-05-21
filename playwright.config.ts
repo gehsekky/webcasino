@@ -52,6 +52,10 @@ export default defineConfig({
       PORT: TEST_PORT,
       E2E_AUTH_BYPASS: '1',
       DATABASE_URL: TEST_DATABASE_URL,
+      // Shorten the turn clock so timeout-based specs don't have to wait
+      // 30s per test. 2s gives the wrapper enough room to commit and
+      // arm the timer before it fires.
+      TURN_DURATION_MS: '2000',
     },
   },
 });

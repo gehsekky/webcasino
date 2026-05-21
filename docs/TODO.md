@@ -140,15 +140,14 @@ Threat model: ordinary players who would cheat or grief if they could (not natio
 
 ### E2E coverage gaps from the 2026-05-21 audit
 
-Many recent features have no e2e coverage. Sizing notation: S = ~30min, M = couple hours, L = needs scaffolding work first. Timeout-based specs are blocked on making `TURN_DURATION_MS` env-overridable.
-
-- [ ] **(S, no blocker) Roulette spin: creator-only enforcement.** Non-creator submits `intent=submit&submit=spin`; expect 403.
-- [ ] **(S, no blocker) Room name reuse after archive.** Create "poker-night", archive, create "poker-night" again — should succeed (was blocked before the partial-unique migration).
-- [ ] **(S, no blocker) Turn timer renders + flashes red.** No server interaction needed — render a Hold'em hand, assert TurnTimer's DOM + the `< 5s` CSS class shows up near deadline. Could even mock-set `turnDeadlineAt` near now.
-- [ ] **(M, blocked) Hold'em creator never sits out on timeout.** Creator times out → seat.sitting_out stays false → next hand includes them. Blocked on making timeout duration env-overridable so the spec runs in <5s.
-- [ ] **(M, blocked) Sit-out + rejoin flow.** Non-creator times out → sitting-out chip + rejoin button visible → click rejoin → next hand includes them. Same blocker.
-- [ ] **(L, blocked) 5cd phase-specific timeouts.** Betting-round timeout → fold; draw-phase timeout → stand pat (`discard []`). Blocker + needs poker-phase tracking helpers in the test harness.
-- [ ] **(S) Make `TURN_DURATION_MS` env-overridable.** Read `process.env.TURN_DURATION_MS_OVERRIDE` (test-only) or `?duration=` query param on the test-auth route to set a short deadline. Unblocks the three M/L specs above.
+- [x] **Make `TURN_DURATION_MS` env-overridable.** Reads `process.env.TURN_DURATION_MS` (positive int) at module load; falls back to 30_000. Playwright config sets it to 2_000 so timeout specs run in seconds.
+- [x] **Room name reuse after archive.** `e2e/recent-features.spec.ts` — create + archive + recreate succeeds.
+- [x] **Turn timer renders.** Same spec file — Hold'em with 2 seats, assert `role="timer"` matches `/\d+s/`.
+- [x] **Roulette UI gating: creator sees Spin.** Same spec file — basic positive test (full creator-only enforcement via hand-crafted POST still pending; needs a second user context).
+- [x] **Hold'em creator never sits out on timeout.** Same spec file — uses the env override; the creator's auto-fold lands and `Hand complete` is shown without the sit-out banner appearing.
+- [ ] **(M) Sit-out + rejoin flow (non-creator).** Needs a second authed user context (two `browser.newContext()` pairs sharing a room). Next batch.
+- [ ] **(M) Roulette spin: server-side 403 for non-creators.** Same blocker — needs a second user that's joined the creator's room and submits a forged POST.
+- [ ] **(L) 5cd phase-specific timeouts.** Betting-round timeout → fold; draw-phase timeout → stand pat. Needs poker-phase tracking helpers in the test harness.
 
 ## Production readiness
 
