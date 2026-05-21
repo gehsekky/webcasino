@@ -141,7 +141,7 @@ export async function switchRoomGame(params: {
     where: { id: params.roomId },
     include: { hand: { orderBy: { created_at: 'desc' }, take: 1 } },
   });
-  if (!room) {
+  if (!room || room.archived_at !== null) {
     throw new Response('room not found', { status: 404 });
   }
   if (room.created_by !== params.by.id) {
@@ -173,6 +173,47 @@ export async function switchRoomGame(params: {
 }
 
 /**
+ * Soft-delete a room. Creator-only. Refuses while a hand is in progress —
+ * settle (or fold-around) first. Sets `archived_at` so the room is
+ * filtered out of listings, join-token resolution, and the room view.
+ * Historical hands, chat, and money transactions stay attached to the
+ * row for audit. A future "show archived" toggle would just relax the
+ * `archived_at IS NULL` filter on the list queries.
+ *
+ * Idempotent: archiving an already-archived room is a no-op.
+ */
+export async function archiveRoom(params: {
+  roomId: string;
+  by: ActingUser;
+}): Promise<{ alreadyArchived: boolean }> {
+  const room = await prisma.casino_table.findUnique({
+    where: { id: params.roomId },
+    include: { hand: { orderBy: { created_at: 'desc' }, take: 1 } },
+  });
+  if (!room) {
+    throw new Response('room not found', { status: 404 });
+  }
+  if (room.created_by !== params.by.id) {
+    throw new Response('only the room creator can close the room', { status: 403 });
+  }
+  if (room.archived_at !== null) {
+    return { alreadyArchived: true };
+  }
+
+  const latest = room.hand[0];
+  const latestPhase = (latest?.data as { phase?: string } | undefined)?.phase;
+  if (latest && latestPhase !== 'settled') {
+    throw new Response('finish the active hand before closing the room', { status: 409 });
+  }
+
+  await prisma.casino_table.update({
+    where: { id: params.roomId },
+    data: { archived_at: new Date() },
+  });
+  return { alreadyArchived: false };
+}
+
+/**
  * Token format: URL-safe, short enough to type, long enough to be
  * unguessable. 9 random bytes → 12 base64url characters.
  */
@@ -196,9 +237,9 @@ export async function joinViaToken(params: {
 }): Promise<JoinViaTokenResult> {
   const room = await prisma.casino_table.findUnique({
     where: { join_token: params.token },
-    select: { id: true },
+    select: { id: true, archived_at: true },
   });
-  if (!room) {
+  if (!room || room.archived_at !== null) {
     throw new Response('join token not found', { status: 404 });
   }
 
@@ -250,11 +291,14 @@ export async function acceptInvitation(params: {
     const invite = await tx.table_invitation.findUnique({
       where: { id: params.invitationId },
       include: {
-        casino_table: { select: { id: true, max_seats: true } },
+        casino_table: { select: { id: true, max_seats: true, archived_at: true } },
       },
     });
     if (!invite || invite.user_id !== params.user.id) {
       throw new Response('invitation not found', { status: 404 });
+    }
+    if (invite.casino_table.archived_at !== null) {
+      throw new Response('this room has been closed', { status: 410 });
     }
     if (invite.status === 'accepted') {
       // Idempotent: already accepted means they already have a seat.
@@ -340,7 +384,12 @@ export type UserRoomSummary = {
  */
 export async function listUserRooms(userId: string): Promise<UserRoomSummary[]> {
   const seats = await prisma.seat.findMany({
-    where: { user_id: userId },
+    where: {
+      user_id: userId,
+      // Hide archived rooms from listings. A future "show archived"
+      // toggle would relax this filter.
+      casino_table: { archived_at: null },
+    },
     include: {
       casino_table: {
         include: {
@@ -389,7 +438,13 @@ export type UserInvitationSummary = {
 /** Pending invitations for the given user (excludes accepted/declined). */
 export async function listUserInvitations(userId: string): Promise<UserInvitationSummary[]> {
   const invites = await prisma.table_invitation.findMany({
-    where: { user_id: userId, status: 'pending' },
+    where: {
+      user_id: userId,
+      status: 'pending',
+      // Hide invitations to archived rooms — the room can't be joined
+      // anymore, so the prompt would be a dead-end.
+      casino_table: { archived_at: null },
+    },
     include: {
       casino_table: {
         select: {
@@ -440,7 +495,7 @@ export async function startHand(params: {
       },
     },
   });
-  if (!room) {
+  if (!room || room.archived_at !== null) {
     throw new Response('room not found', { status: 404 });
   }
 

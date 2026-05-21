@@ -38,7 +38,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       hand: { orderBy: { created_at: 'desc' }, take: 1 },
     },
   });
-  if (!room) {
+  if (!room || room.archived_at !== null) {
     return new Response('room not found', { status: 404 });
   }
 

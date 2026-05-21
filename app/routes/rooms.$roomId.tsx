@@ -1,9 +1,15 @@
 import { type ActionFunctionArgs, type LoaderFunctionArgs, json, redirect } from '@remix-run/node';
-import { useLoaderData } from '@remix-run/react';
+import { Form, useLoaderData } from '@remix-run/react';
+import { AuthenticityTokenInput } from 'remix-utils/csrf/react';
 import { prisma } from 'db.server';
 import { requireUser } from 'auth/guards.server';
 import { csrf, CSRFError } from 'auth/csrf.server';
-import { startHand, switchRoomGame, type RoomGameType } from 'actions/tableLifecycle.server';
+import {
+  archiveRoom,
+  startHand,
+  switchRoomGame,
+  type RoomGameType,
+} from 'actions/tableLifecycle.server';
 import { submitAction, parseBlackjackActionFromForm } from 'actions/handEngine.server';
 import { submitPokerAction, parsePokerActionFromForm } from 'actions/pokerEngine.server';
 import { submitHoldemAction, parseHoldemActionFromForm } from 'actions/holdemEngine.server';
@@ -66,6 +72,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     },
   });
   if (!room) throw new Response('room not found', { status: 404 });
+  // Archived rooms are off-limits for everyone, creator included.
+  // Bounce to landing so the URL doesn't leave the user stuck.
+  if (room.archived_at !== null) {
+    throw redirect('/');
+  }
 
   // Authorization: must have a seat at the room. Invitations are claimed
   // on the landing page, not here.
@@ -274,6 +285,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
     return redirect(`/rooms/${roomId}`);
   }
 
+  if (intent === 'archive_room') {
+    await archiveRoom({ roomId, by: user });
+    return redirect('/');
+  }
+
   if (intent === 'switch_game') {
     const target = formData.get('gameType')?.toString() ?? '';
     const ALLOWED_GAMES: RoomGameType[] = ['blackjack', 'poker', 'holdem', 'slots', 'roulette'];
@@ -430,6 +446,9 @@ export default function RoomRoute() {
             <span className="text-sm uppercase tracking-wider text-emerald-200/70">
               {GAME_LABEL[gt]}
             </span>
+            {data.room.isCreator && (
+              <CloseRoomButton roomId={data.room.id} roomName={data.room.name} />
+            )}
           </div>
           {main}
         </div>
@@ -442,5 +461,41 @@ export default function RoomRoute() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Creator-only "close room" affordance in the room header. Submits
+ * `intent=archive_room`; server-side `archiveRoom` refuses mid-hand
+ * and redirects to landing on success.
+ *
+ * Confirm prompt is JS-side guard rails — server still validates.
+ */
+function CloseRoomButton({ roomId, roomName }: { roomId: string; roomName: string }) {
+  return (
+    <Form
+      method="post"
+      action={`/rooms/${roomId}`}
+      className="ml-auto"
+      onSubmit={(e) => {
+        if (
+          !window.confirm(
+            `Close "${roomName}"? Members will lose access and the room ` +
+              `won't appear in listings anymore. Hand history is preserved.`,
+          )
+        ) {
+          e.preventDefault();
+        }
+      }}
+    >
+      <AuthenticityTokenInput />
+      <input type="hidden" name="intent" value="archive_room" />
+      <button
+        type="submit"
+        className="text-xs uppercase tracking-wider text-emerald-200/70 hover:text-red-300 transition-colors"
+      >
+        ✕ Close room
+      </button>
+    </Form>
   );
 }

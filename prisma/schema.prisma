@@ -63,6 +63,10 @@ model casino_table {
   /// one. The DB-level UNIQUE allows multiple NULLs (Postgres semantics).
   join_token  String?  @unique @db.VarChar(64)
   created_by  String   @db.Uuid
+  /// Soft-delete marker. Null = active. Non-null = the room is archived
+  /// and hidden from listings, join-token resolution, and the room view.
+  /// Historical data (hands, chat, money_transaction) is preserved.
+  archived_at DateTime? @db.Timestamptz(6)
   updated_at  DateTime @default(now()) @updatedAt @db.Timestamptz(6)
   created_at  DateTime @default(now()) @db.Timestamptz(6)
   user        user     @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -72,6 +76,7 @@ model casino_table {
   chat_message     chat_message[]
 
   @@unique([created_by, name])
+  @@index([created_by, archived_at])
 }
 
 /// Chat message scoped to a room. Persisted so members can read scrollback
