@@ -9,7 +9,7 @@ import { test, expect, type Page } from './fixtures';
 
 async function createRoomOf(
   page: Page,
-  gameType: 'holdem' | 'slots' | 'roulette',
+  gameType: 'holdem' | 'slots' | 'roulette' | 'baccarat',
   name: string,
   seats: number,
 ) {
@@ -57,5 +57,31 @@ test.describe('New games', () => {
     await expect(authedPage.getByRole('button', { name: /^Black bet/i })).toBeVisible();
     // Place button is initially gated until a bet is selected.
     await expect(authedPage.getByRole('button', { name: /Select a bet/i })).toBeVisible();
+  });
+
+  test('Baccarat: place a Player bet then Deal settles the hand', async ({ authedPage }) => {
+    await createRoomOf(authedPage, 'baccarat', `e2e-baccarat-${Date.now()}`, 1);
+    await authedPage.getByRole('button', { name: /Start Hand/i }).click();
+
+    // Both empty-hand placeholders should be visible before the deal.
+    await expect(authedPage.getByText(/no cards yet/i).first()).toBeVisible({ timeout: 5_000 });
+
+    // The three bet buttons render with their accessible names.
+    await expect(authedPage.getByRole('button', { name: /^Player$/i })).toBeVisible();
+    await expect(authedPage.getByRole('button', { name: /^Banker$/i })).toBeVisible();
+    await expect(authedPage.getByRole('button', { name: /^Tie$/i })).toBeVisible();
+
+    // Place a Player bet, then trigger the deal.
+    await authedPage.getByRole('button', { name: /^Player$/i }).click();
+    // Wait for the bet to land (Active Bets list appears).
+    await expect(authedPage.getByText(/Your bets/i)).toBeVisible({ timeout: 5_000 });
+
+    await authedPage.getByRole('button', { name: /Deal the next hand/i }).click();
+
+    // The settled banner labels the outcome — "Player wins", "Banker wins",
+    // or "Tie" (any of the three is a valid hand).
+    await expect(authedPage.getByText(/Player wins|Banker wins|Tie/i).first()).toBeVisible({
+      timeout: 10_000,
+    });
   });
 });

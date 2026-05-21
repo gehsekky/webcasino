@@ -25,9 +25,9 @@ const ROOM_NAME_MAX_LENGTH = 128;
 export default function CreateGameModal({ open, onClose }: CreateGameModalProps) {
   const fetcher = useFetcher();
   const [name, setName] = useState('');
-  const [gameType, setGameType] = useState<'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette'>(
-    'blackjack',
-  );
+  const [gameType, setGameType] = useState<
+    'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette' | 'baccarat'
+  >('blackjack');
   const [numSeats, setNumSeats] = useState(3);
   const [stakes, setStakes] = useState<StakesPreset>('low');
   const [customMin, setCustomMin] = useState(1);
@@ -43,6 +43,7 @@ export default function CreateGameModal({ open, onClose }: CreateGameModalProps)
     holdem: { min: 2, max: 9 },
     slots: { min: 1, max: 1 },
     roulette: { min: 1, max: 8 },
+    baccarat: { min: 1, max: 7 },
   } as const;
   const minSeats = SEAT_RANGE[gameType].min;
   const maxSeats = SEAT_RANGE[gameType].max;
@@ -114,7 +115,13 @@ export default function CreateGameModal({ open, onClose }: CreateGameModalProps)
               value={gameType}
               onChange={(e) =>
                 setGameType(
-                  e.target.value as 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette',
+                  e.target.value as
+                    | 'blackjack'
+                    | 'poker'
+                    | 'holdem'
+                    | 'slots'
+                    | 'roulette'
+                    | 'baccarat',
                 )
               }
               className="w-full rounded bg-emerald-950 text-white border border-emerald-700 px-3 py-2"
@@ -124,6 +131,7 @@ export default function CreateGameModal({ open, onClose }: CreateGameModalProps)
               <option value="holdem">Texas Hold&apos;em</option>
               <option value="slots">Slots</option>
               <option value="roulette">Roulette</option>
+              <option value="baccarat">Baccarat</option>
             </select>
           </div>
 

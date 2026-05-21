@@ -18,7 +18,7 @@ import ConnectionStatus from './ConnectionStatus';
 type RouletteHandViewProps = {
   roomId: string;
   isRoomCreator: boolean;
-  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette';
+  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette' | 'baccarat';
   roomMaxSeats: number;
   handSeatId: string | null;
   initialView: RouletteView;
@@ -680,7 +680,7 @@ function SettledPanel({
   view: RouletteView;
   roomId: string;
   isRoomCreator: boolean;
-  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette';
+  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette' | 'baccarat';
   roomMaxSeats: number;
   viewerSlotId: string | null;
 }) {

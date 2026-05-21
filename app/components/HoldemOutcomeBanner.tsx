@@ -10,7 +10,7 @@ type HoldemOutcomeBannerProps = {
   handSeatId: string;
   roomId: string;
   isRoomCreator: boolean;
-  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette';
+  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette' | 'baccarat';
   roomMaxSeats: number;
 };
 

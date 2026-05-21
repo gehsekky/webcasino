@@ -16,7 +16,7 @@ type HandViewProps = {
   /** Only the room creator can start the next hand. */
   isRoomCreator: boolean;
   /** Room's current game type — for the between-hands game switcher. */
-  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette';
+  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette' | 'baccarat';
   /** Room's seat count — gates which games can be switched to. */
   roomMaxSeats: number;
   /**

@@ -3,7 +3,7 @@ import { useFetcher } from '@remix-run/react';
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react';
 import { buttonClass } from 'lib/buttonStyle';
 
-type GameKind = 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette';
+type GameKind = 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette' | 'baccarat';
 
 const GAME_LABEL: Record<GameKind, string> = {
   blackjack: 'Blackjack',
@@ -11,6 +11,7 @@ const GAME_LABEL: Record<GameKind, string> = {
   holdem: "Texas Hold'em",
   slots: 'Slots',
   roulette: 'Roulette',
+  baccarat: 'Baccarat',
 };
 
 const GAME_SEAT_RANGES: Record<GameKind, { min: number; max: number }> = {
@@ -19,6 +20,7 @@ const GAME_SEAT_RANGES: Record<GameKind, { min: number; max: number }> = {
   holdem: { min: 2, max: 9 },
   slots: { min: 1, max: 1 },
   roulette: { min: 1, max: 8 },
+  baccarat: { min: 1, max: 7 },
 };
 
 type GameSwitcherProps = {

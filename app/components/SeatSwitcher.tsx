@@ -3,7 +3,7 @@ import { useFetcher } from '@remix-run/react';
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react';
 import { buttonClass } from 'lib/buttonStyle';
 
-type GameKind = 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette';
+type GameKind = 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette' | 'baccarat';
 
 // Mirrors `GAME_SEAT_RANGES` in `actions/tableLifecycle.server.ts`. Kept
 // inline so this component doesn't have to import server-only code.
@@ -13,6 +13,7 @@ const GAME_SEAT_RANGES: Record<GameKind, { min: number; max: number }> = {
   holdem: { min: 2, max: 9 },
   slots: { min: 1, max: 1 },
   roulette: { min: 1, max: 8 },
+  baccarat: { min: 1, max: 7 },
 };
 
 type SeatSwitcherProps = {

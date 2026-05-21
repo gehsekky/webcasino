@@ -15,7 +15,7 @@ import ConnectionStatus from './ConnectionStatus';
 type SlotsHandViewProps = {
   roomId: string;
   isRoomCreator: boolean;
-  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette';
+  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette' | 'baccarat';
   roomMaxSeats: number;
   handSeatId: string | null;
   initialView: SlotsView;
@@ -248,7 +248,7 @@ function OutcomePanel({
   view: SlotsView;
   roomId: string;
   isRoomCreator: boolean;
-  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette';
+  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette' | 'baccarat';
   roomMaxSeats: number;
   viewerName: string;
 }) {

@@ -11,7 +11,7 @@ import SittingOutBanner from './SittingOutBanner';
 type HoldemHandViewProps = {
   roomId: string;
   isRoomCreator: boolean;
-  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette';
+  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette' | 'baccarat';
   roomMaxSeats: number;
   handSeatId: string | null;
   initialView: HoldemView;

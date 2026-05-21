@@ -80,13 +80,29 @@ export default function RoomLobby({ room, seats }: RoomLobbyProps) {
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
             <GameSwitcher
               roomId={room.id}
-              currentGame={room.gameType as 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette'}
+              currentGame={
+                room.gameType as
+                  | 'blackjack'
+                  | 'poker'
+                  | 'holdem'
+                  | 'slots'
+                  | 'roulette'
+                  | 'baccarat'
+              }
               maxSeats={room.maxSeats}
               isRoomCreator={room.isCreator}
             />
             <SeatSwitcher
               roomId={room.id}
-              currentGame={room.gameType as 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette'}
+              currentGame={
+                room.gameType as
+                  | 'blackjack'
+                  | 'poker'
+                  | 'holdem'
+                  | 'slots'
+                  | 'roulette'
+                  | 'baccarat'
+              }
               maxSeats={room.maxSeats}
               seatedCount={seats.length}
               isRoomCreator={room.isCreator}

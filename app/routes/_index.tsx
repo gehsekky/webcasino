@@ -87,6 +87,7 @@ export async function action({ request }: ActionFunctionArgs) {
       'holdem',
       'slots',
       'roulette',
+      'baccarat',
     ];
     if (!ALLOWED_GAME_TYPES.includes(gameType as RoomGameType)) {
       throw new Response('invalid game type', { status: 400 });

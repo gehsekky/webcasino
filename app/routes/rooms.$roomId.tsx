@@ -17,18 +17,21 @@ import { submitPokerAction, parsePokerActionFromForm } from 'actions/pokerEngine
 import { submitHoldemAction, parseHoldemActionFromForm } from 'actions/holdemEngine.server';
 import { submitSlotsAction, parseSlotsActionFromForm } from 'actions/slotsEngine.server';
 import { submitRouletteAction, parseRouletteActionFromForm } from 'actions/rouletteEngine.server';
+import { submitBaccaratAction, parseBaccaratActionFromForm } from 'actions/baccaratEngine.server';
 import { listRecentMessages, sendChatMessage } from 'actions/chat.server';
 import { blackjackEngine } from 'engines/blackjack/engine';
 import { fiveCardDrawEngine } from 'engines/poker/fiveCardDraw/engine';
 import { holdemEngine } from 'engines/poker/holdem/engine';
 import { slotsEngine } from 'engines/slots/engine';
 import { rouletteEngine } from 'engines/roulette/engine';
+import { baccaratEngine } from 'engines/baccarat/engine';
 import { BlackjackStateSchema } from 'lib/gameState';
 import type { BlackjackView } from 'engines/blackjack/types';
 import type { FiveCardDrawState, FiveCardDrawView } from 'engines/poker/fiveCardDraw/types';
 import type { HoldemState, HoldemView } from 'engines/poker/holdem/types';
 import type { SlotsState, SlotsView } from 'engines/slots/types';
 import type { RouletteState, RouletteView } from 'engines/roulette/types';
+import type { BaccaratState, BaccaratView } from 'engines/baccarat/types';
 import SiteHeader from 'components/SiteHeader';
 import RoomLobby from 'components/RoomLobby';
 import HandView from 'components/HandView';
@@ -36,6 +39,7 @@ import PokerHandView from 'components/PokerHandView';
 import HoldemHandView from 'components/HoldemHandView';
 import SlotsHandView from 'components/SlotsHandView';
 import RouletteHandView from 'components/RouletteHandView';
+import BaccaratHandView from 'components/BaccaratHandView';
 import ChatPane from 'components/ChatPane';
 
 type RoomSeatSummary = {
@@ -57,6 +61,7 @@ const GAME_LABEL: Record<RoomGameType, string> = {
   holdem: "Texas Hold'em",
   slots: 'Slots',
   roulette: 'Roulette',
+  baccarat: 'Baccarat',
 };
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -235,6 +240,26 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     });
   }
 
+  if (handStateType === 'baccarat') {
+    const state = latest.data as unknown as BaccaratState;
+    const view = baccaratEngine.viewFor(state, projectionTarget);
+    const dbUser = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { money: true },
+    });
+    return json({
+      mode: 'hand_baccarat' as const,
+      room: roomSummary,
+      seats,
+      viewer: { ...viewer, balance: dbUser?.money ?? 0 },
+      handId: latest.id,
+      handSeatId,
+      view,
+      participants,
+      chatMessages,
+    });
+  }
+
   if (handStateType === 'blackjack') {
     const bjState = BlackjackStateSchema.parse(latest.data);
     const view: BlackjackView = blackjackEngine.viewFor(bjState, projectionTarget);
@@ -335,7 +360,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
   if (intent === 'switch_game') {
     const target = formData.get('gameType')?.toString() ?? '';
-    const ALLOWED_GAMES: RoomGameType[] = ['blackjack', 'poker', 'holdem', 'slots', 'roulette'];
+    const ALLOWED_GAMES: RoomGameType[] = [
+      'blackjack',
+      'poker',
+      'holdem',
+      'slots',
+      'roulette',
+      'baccarat',
+    ];
     if (!ALLOWED_GAMES.includes(target as RoomGameType)) {
       throw new Response('invalid game type', { status: 400 });
     }
@@ -394,6 +426,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
       throw new Response('only the room creator can spin', { status: 403 });
     }
     await submitRouletteAction({ handSeatId: handSeat.id, action: parsed });
+  } else if (stateType === 'baccarat') {
+    const parsed = parseBaccaratActionFromForm(submitValue, formData, handSeat.id);
+    // Same creator-gating as roulette spin: deal resolves the whole hand.
+    if (parsed.kind === 'deal' && latest.casino_table.created_by !== user.id) {
+      throw new Response('only the room creator can deal', { status: 403 });
+    }
+    await submitBaccaratAction({ handSeatId: handSeat.id, action: parsed });
   } else {
     const parsed = parseBlackjackActionFromForm(submitValue, formData, handSeat.id);
     await submitAction({ handSeatId: handSeat.id, action: parsed });
@@ -463,6 +502,19 @@ export default function RoomRoute() {
         roomMaxSeats={data.room.maxSeats}
         handSeatId={data.handSeatId}
         initialView={data.view as unknown as RouletteView}
+        viewerName={data.viewer.name}
+        viewerBalance={data.viewer.balance}
+        participants={data.participants}
+      />
+    ) : data.mode === 'hand_baccarat' ? (
+      <BaccaratHandView
+        key={data.handId}
+        roomId={data.room.id}
+        isRoomCreator={data.room.isCreator}
+        roomGameType={gt}
+        roomMaxSeats={data.room.maxSeats}
+        handSeatId={data.handSeatId}
+        initialView={data.view as unknown as BaccaratView}
         viewerName={data.viewer.name}
         viewerBalance={data.viewer.balance}
         participants={data.participants}

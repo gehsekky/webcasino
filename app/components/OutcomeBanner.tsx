@@ -12,7 +12,7 @@ type OutcomeBannerProps = {
   /** Only the room creator can advance to the next hand. */
   isRoomCreator: boolean;
   /** Current game at the room — feeds the between-hands switcher. */
-  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette';
+  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette' | 'baccarat';
   /** Room's seat count — gates the switcher's available options. */
   roomMaxSeats: number;
 };
@@ -137,7 +137,7 @@ function BannerShell({
   winning: boolean;
   roomId: string;
   isRoomCreator: boolean;
-  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette';
+  roomGameType: 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette' | 'baccarat';
   roomMaxSeats: number;
   children: React.ReactNode;
 }) {

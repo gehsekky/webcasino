@@ -6,11 +6,13 @@ import { fiveCardDrawEngine } from 'engines/poker/fiveCardDraw/engine';
 import { holdemEngine } from 'engines/poker/holdem/engine';
 import { slotsEngine } from 'engines/slots/engine';
 import { rouletteEngine } from 'engines/roulette/engine';
+import { baccaratEngine } from 'engines/baccarat/engine';
 import { BlackjackStateSchema, type BlackjackState } from 'lib/gameState';
 import type { FiveCardDrawState } from 'engines/poker/fiveCardDraw/types';
 import type { HoldemState } from 'engines/poker/holdem/types';
 import type { SlotsState } from 'engines/slots/types';
 import type { RouletteState } from 'engines/roulette/types';
+import type { BaccaratState } from 'engines/baccarat/types';
 import { broadcastBus, type BroadcastedHandEvent } from 'lib/broadcastBus.server';
 import { chatBus, type BroadcastedChatMessage } from 'lib/chatBus.server';
 
@@ -79,6 +81,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     }
     if (t === 'roulette') {
       return rouletteEngine.viewFor(state as RouletteState, projectionTarget);
+    }
+    if (t === 'baccarat') {
+      return baccaratEngine.viewFor(state as BaccaratState, projectionTarget);
     }
     if (t === 'blackjack') {
       return blackjackEngine.viewFor(state as BlackjackState, projectionTarget);
@@ -166,7 +171,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
           // not the room's game_type — same reasoning as `projectView`.
           const t = (handRow.data as { type?: string } | null)?.type;
           let state: unknown;
-          if (t === 'fivecarddraw' || t === 'holdem' || t === 'slots' || t === 'roulette') {
+          if (
+            t === 'fivecarddraw' ||
+            t === 'holdem' ||
+            t === 'slots' ||
+            t === 'roulette' ||
+            t === 'baccarat'
+          ) {
             state = handRow.data;
           } else {
             state = BlackjackStateSchema.parse(handRow.data);

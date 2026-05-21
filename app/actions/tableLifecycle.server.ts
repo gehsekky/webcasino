@@ -6,6 +6,7 @@ import { startPokerHand, type PokerRoomConfig } from './pokerEngine.server';
 import { startHoldemHand, type HoldemRoomConfig } from './holdemEngine.server';
 import { startSlotsHand, type SlotsRoomConfig } from './slotsEngine.server';
 import { startRouletteHand, type RouletteRoomConfig } from './rouletteEngine.server';
+import { startBaccaratHand, type BaccaratRoomConfig } from './baccaratEngine.server';
 
 /**
  * Room (a.k.a. casino_table) lifecycle: create, accept invites, list,
@@ -17,7 +18,7 @@ import { startRouletteHand, type RouletteRoomConfig } from './rouletteEngine.ser
  * a "game" or "room"; in code we use "room" as the consistent noun.
  */
 
-export type RoomGameType = 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette';
+export type RoomGameType = 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette' | 'baccarat';
 
 export const ROOM_NAME_MAX_LENGTH = 128;
 
@@ -29,6 +30,7 @@ export const GAME_SEAT_RANGES: Record<RoomGameType, { min: number; max: number }
   holdem: { min: 2, max: 9 },
   slots: { min: 1, max: 1 },
   roulette: { min: 1, max: 8 },
+  baccarat: { min: 1, max: 7 },
 };
 
 /**
@@ -751,6 +753,19 @@ export async function startHand(params: {
       maximumBet: room.maximum_bet,
     };
     return startRouletteHand({
+      roomId: room.id,
+      participants,
+      config,
+      creatorId: params.startedBy.id,
+    });
+  }
+
+  if (room.game_type === 'baccarat') {
+    const config: BaccaratRoomConfig = {
+      minimumBet: room.minimum_bet,
+      maximumBet: room.maximum_bet,
+    };
+    return startBaccaratHand({
       roomId: room.id,
       participants,
       config,
