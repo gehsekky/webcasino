@@ -467,7 +467,10 @@ export async function fireHoldemTurnTimeout(handId: string): Promise<void> {
     if (userMap.get(state.toAct)?.is_ai !== false) return;
 
     const acting = state.toAct;
-    const auto = holdemEngine.aiAction!(state, acting, defaultRng);
+    // Hold'em timeouts always fold. The engine.aiAction picker is for
+    // bots making intentional plays; humans who walk away should
+    // forfeit the hand outright.
+    const auto: HoldemAction = { kind: 'fold', playerId: acting };
     let cursor = holdemEngine.applyAction(state, acting, auto, defaultRng);
     await applyDiffs(state, cursor, userMap, tx, auto.kind);
     const seq = await appendHandEvent(

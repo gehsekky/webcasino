@@ -592,7 +592,13 @@ export async function fireBlackjackTurnTimeout(handId: string): Promise<void> {
     if (isAISlot(state.toAct, state, userMap)) return;
 
     const acting = state.toAct;
-    const autoAction = blackjackEngine.aiAction!(state, acting, defaultRng);
+    // Prefer `stay` on timeout — closes the player's turn with whatever
+    // they have. Falls back to the engine's passive picker for phases
+    // where stay isn't legal (awaiting_bets, insurance_offered).
+    const legal = blackjackEngine.legalActions(state, acting);
+    const autoAction: BlackjackAction = legal.some((a) => a.kind === 'stay')
+      ? { kind: 'stay', playerId: acting }
+      : blackjackEngine.aiAction!(state, acting, defaultRng);
     let next = blackjackEngine.applyAction(state, acting, autoAction, defaultRng);
     await applyStepDiff(state, next, userMap, autoAction.kind, tx);
     const seq = await appendHandEvent(
