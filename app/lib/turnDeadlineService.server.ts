@@ -34,10 +34,18 @@ class TurnDeadlineService {
     const ms = Math.max(0, deadlineAt.getTime() - Date.now());
     const handle = setTimeout(() => {
       this.timers.delete(handId);
-      void Promise.resolve(onFire()).catch((err) => {
+      // Wrap in try/catch so a synchronous throw can't escape the
+      // setTimeout callback and crash the process; the Promise chain
+      // handles async rejections.
+      try {
+        void Promise.resolve(onFire()).catch((err) => {
+          // eslint-disable-next-line no-console
+          console.error(`[turnDeadlineService] onFire rejected for hand ${handId}:`, err);
+        });
+      } catch (err) {
         // eslint-disable-next-line no-console
         console.error(`[turnDeadlineService] onFire threw for hand ${handId}:`, err);
-      });
+      }
     }, ms);
     this.timers.set(handId, handle);
   }
