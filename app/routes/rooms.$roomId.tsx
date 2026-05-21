@@ -7,6 +7,7 @@ import { csrf, CSRFError } from 'auth/csrf.server';
 import {
   archiveRoom,
   changeRoomMaxSeats,
+  removeSeat,
   startHand,
   switchRoomGame,
   type RoomGameType,
@@ -38,6 +39,8 @@ import RouletteHandView from 'components/RouletteHandView';
 import ChatPane from 'components/ChatPane';
 
 type RoomSeatSummary = {
+  /** seat.id — used for kick/remove flow. */
+  seatId: string;
   position: number;
   userId: string;
   name: string;
@@ -89,6 +92,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 
   const seats: RoomSeatSummary[] = room.seat.map((s) => ({
+    seatId: s.id,
     position: s.position,
     userId: s.user_id,
     name: s.user.name,
@@ -294,6 +298,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
   if (intent === 'archive_room') {
     await archiveRoom({ roomId, by: user });
     return redirect('/');
+  }
+
+  if (intent === 'remove_seat') {
+    const seatId = formData.get('seatId')?.toString() ?? '';
+    if (!seatId) {
+      throw new Response('seatId required', { status: 400 });
+    }
+    await removeSeat({ roomId, seatId, by: user });
+    return redirect(`/rooms/${roomId}`);
   }
 
   if (intent === 'change_max_seats') {

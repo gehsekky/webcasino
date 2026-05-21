@@ -95,6 +95,24 @@ test.describe('Seat count change', () => {
     await expect(authedPage.getByText(/5 seats/i).first()).toBeVisible({ timeout: 5_000 });
   });
 
+  test('reducing seats triggers a confirm prompt', async ({ authedPage }) => {
+    const roomName = `e2e-reduce-${Date.now()}`;
+    await createRoom(authedPage, { name: roomName, seats: 4 });
+
+    // Accept whatever confirm() fires; record its text to assert on.
+    let prompt: string | null = null;
+    authedPage.on('dialog', (d) => {
+      prompt = d.message();
+      void d.accept();
+    });
+
+    await authedPage.getByLabel(/^Seats$/i).fill('2');
+    await authedPage.getByRole('button', { name: /^Save$/i }).click();
+
+    await expect(authedPage.getByText(/2 seats/i).first()).toBeVisible({ timeout: 5_000 });
+    expect(prompt).toMatch(/Reduce seats from 4 to 2/i);
+  });
+
   test('slots rooms have a read-only seats label, not an input', async ({ authedPage }) => {
     const roomName = `e2e-slots-seats-${Date.now()}`;
     await createRoom(authedPage, { name: roomName, game: 'slots', seats: 1 });
@@ -105,6 +123,52 @@ test.describe('Seat count change', () => {
     await expect(authedPage.getByText(/fixed for slots/i)).toBeVisible();
     // The editable seats input shouldn't render at all.
     await expect(authedPage.getByLabel(/^Seats$/i)).toHaveCount(0);
+  });
+});
+
+test.describe('Kick seat', () => {
+  test('creator removes a joined non-creator from the roster', async ({ browser, authedPage }) => {
+    const roomName = `e2e-kick-${Date.now()}`;
+    await createRoom(authedPage, { name: roomName, seats: 3 });
+
+    // Grab the join URL the creator can share.
+    const joinPath = await authedPage.getByLabel(/Join URL/i).inputValue();
+    expect(joinPath).toMatch(/^\/join\//);
+
+    // Second user joins in a fresh browser context (separate cookie jar).
+    const bContext = await browser.newContext();
+    try {
+      const bPage = await bContext.newPage();
+      const bName = `e2e-kick-victim-${Date.now()}`;
+      const loginResp = await bPage.context().request.post('/test-auth/login', {
+        form: { name: bName },
+      });
+      expect(loginResp.ok()).toBeTruthy();
+
+      // Visit the join URL — backend creates a pending invitation and
+      // redirects to /. Accept it there; wait for B's redirect to the
+      // room view so the seat commit is observable before A reloads.
+      await bPage.goto(joinPath);
+      await bPage.waitForURL(/\/$/, { timeout: 5_000 });
+      await bPage
+        .getByRole('button', { name: /^Accept$/i })
+        .first()
+        .click();
+      await bPage.waitForURL(/\/rooms\//, { timeout: 5_000 });
+
+      // Now the second user has a seat. Refresh A's room to see them.
+      await authedPage.reload();
+      await expect(authedPage.getByText(bName)).toBeVisible({ timeout: 5_000 });
+
+      // Kick: accept the confirm and click the ✕ on the second user's row.
+      authedPage.on('dialog', (d) => void d.accept());
+      await authedPage.getByRole('button', { name: new RegExp(`Remove ${bName}`, 'i') }).click();
+
+      // The second user's row should disappear from the roster.
+      await expect(authedPage.getByText(bName)).toHaveCount(0, { timeout: 5_000 });
+    } finally {
+      await bContext.close();
+    }
   });
 });
 

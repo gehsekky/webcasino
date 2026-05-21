@@ -17,6 +17,8 @@ type RoomSummary = {
 };
 
 type RoomSeatRow = {
+  /** seat.id — used by the kick form. */
+  seatId: string;
   position: number;
   userId: string;
   name: string;
@@ -138,6 +140,29 @@ export default function RoomLobby({ room, seats }: RoomLobbyProps) {
                             className="rounded bg-amber-500 px-2 py-1 text-xs font-semibold text-slate-900 hover:bg-amber-400"
                           >
                             Rejoin next hand
+                          </button>
+                        </Form>
+                      )}
+                      {room.isCreator && !s.isCreator && (
+                        <Form
+                          method="post"
+                          action={`/rooms/${room.id}`}
+                          onSubmit={(e) => {
+                            if (!window.confirm(`Remove ${s.name} from the room?`)) {
+                              e.preventDefault();
+                            }
+                          }}
+                        >
+                          <AuthenticityTokenInput />
+                          <input type="hidden" name="intent" value="remove_seat" />
+                          <input type="hidden" name="seatId" value={s.seatId} />
+                          <button
+                            type="submit"
+                            aria-label={`Remove ${s.name}`}
+                            title={`Remove ${s.name}`}
+                            className="text-emerald-200/60 hover:text-red-300 transition-colors px-1"
+                          >
+                            ✕
                           </button>
                         </Form>
                       )}

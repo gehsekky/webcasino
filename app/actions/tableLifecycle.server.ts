@@ -243,6 +243,64 @@ export async function changeRoomMaxSeats(params: {
 }
 
 /**
+ * Remove a seat from a room. Creator-only. Refuses while a hand is in
+ * progress and refuses to remove the creator's own seat. Historical
+ * hand_seat rows that referenced this seat keep the row but null out
+ * their `seat_id` (mirrors how AI fills are represented) — preserves
+ * the audit trail.
+ *
+ * The kicked user's `table_invitation` row is left untouched; they can
+ * rejoin via the same join link, which slots them into the next open
+ * position via `joinViaToken`.
+ */
+export async function removeSeat(params: {
+  roomId: string;
+  seatId: string;
+  by: ActingUser;
+}): Promise<void> {
+  return prisma.$transaction(async (tx) => {
+    const room = await tx.casino_table.findUnique({
+      where: { id: params.roomId },
+      include: {
+        hand: { orderBy: { created_at: 'desc' }, take: 1 },
+      },
+    });
+    if (!room || room.archived_at !== null) {
+      throw new Response('room not found', { status: 404 });
+    }
+    if (room.created_by !== params.by.id) {
+      throw new Response('only the room creator can remove a seat', { status: 403 });
+    }
+
+    const seat = await tx.seat.findUnique({
+      where: { id: params.seatId },
+      select: { id: true, table_id: true, user_id: true },
+    });
+    if (!seat || seat.table_id !== params.roomId) {
+      throw new Response('seat not found at this room', { status: 404 });
+    }
+    if (seat.user_id === room.created_by) {
+      throw new Response("can't remove the creator's own seat", { status: 409 });
+    }
+
+    const latest = room.hand[0];
+    const latestPhase = (latest?.data as { phase?: string } | undefined)?.phase;
+    if (latest && latestPhase !== 'settled') {
+      throw new Response('cannot remove a seat while a hand is in progress', { status: 409 });
+    }
+
+    // hand_seat.seat_id is FK ON DELETE NoAction → null it out first so
+    // the DELETE doesn't violate the constraint. The hand_seat row's
+    // user_id is preserved, so historical participation stays intact.
+    await tx.hand_seat.updateMany({
+      where: { seat_id: seat.id },
+      data: { seat_id: null },
+    });
+    await tx.seat.delete({ where: { id: seat.id } });
+  });
+}
+
+/**
  * Soft-delete a room. Creator-only. Refuses while a hand is in progress —
  * settle (or fold-around) first. Sets `archived_at` so the room is
  * filtered out of listings, join-token resolution, and the room view.

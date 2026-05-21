@@ -81,6 +81,22 @@ export default function SeatSwitcher({
       method="post"
       action={`/rooms/${roomId}`}
       className="flex items-center gap-2 text-xs"
+      onSubmit={(e) => {
+        // Only confirm on reduction. The input's `min` already blocks
+        // dropping below the seated count, so a shrink here only retires
+        // empty AI-fill capacity — still worth a prompt since it changes
+        // the table's shape.
+        const form = e.currentTarget;
+        const requested = parseInt(
+          (form.elements.namedItem('maxSeats') as HTMLInputElement | null)?.value ?? '',
+          10,
+        );
+        if (Number.isFinite(requested) && requested < maxSeats) {
+          if (!window.confirm(`Reduce seats from ${maxSeats} to ${requested}?`)) {
+            e.preventDefault();
+          }
+        }
+      }}
     >
       <AuthenticityTokenInput />
       <input type="hidden" name="intent" value="change_max_seats" />
