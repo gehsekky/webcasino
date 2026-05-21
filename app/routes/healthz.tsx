@@ -1,4 +1,4 @@
-import { json, type LoaderFunctionArgs } from '@remix-run/node';
+import { json } from '@remix-run/node';
 import { prisma } from 'db.server';
 
 /**
@@ -12,7 +12,7 @@ import { prisma } from 'db.server';
  *
  * Response body is JSON so logs / dashboards can show "what failed."
  */
-export async function loader(_args: LoaderFunctionArgs) {
+export async function loader(): Promise<Response> {
   const startedAt = Date.now();
   try {
     // Lightest possible roundtrip — no table access, just confirms the
