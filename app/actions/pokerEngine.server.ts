@@ -4,6 +4,7 @@ import { prisma, type PrismaTransactionClient } from 'db.server';
 import { recordMoneyTransaction } from './moneyTransaction.server';
 import { fiveCardDrawEngine } from 'engines/poker/fiveCardDraw/engine';
 import type { FiveCardDrawAction, FiveCardDrawState } from 'engines/poker/fiveCardDraw/types';
+import { FiveCardDrawStateSchema } from 'engines/poker/fiveCardDraw/state.schema';
 import { defaultRng } from 'engines/rng';
 import { appendHandEvent, HAND_INITIALIZED } from 'lib/handEvents';
 import { broadcastBus, type BroadcastedHandEvent } from 'lib/broadcastBus.server';
@@ -395,12 +396,7 @@ async function buildUserMap(
 }
 
 function parseState(raw: unknown): FiveCardDrawState {
-  // No Zod schema yet for the poker engine state; trust the engine
-  // wrote it, and the type is internally consistent.
-  if (!raw || typeof raw !== 'object' || (raw as { type?: string }).type !== 'fivecarddraw') {
-    throw new Error('pokerEngine: hand.data does not look like a fivecarddraw state');
-  }
-  return raw as FiveCardDrawState;
+  return FiveCardDrawStateSchema.parse(raw) as FiveCardDrawState;
 }
 
 /**

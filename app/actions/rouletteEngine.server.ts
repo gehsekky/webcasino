@@ -4,6 +4,7 @@ import { prisma, type PrismaTransactionClient } from 'db.server';
 import { recordMoneyTransaction } from './moneyTransaction.server';
 import { rouletteEngine } from 'engines/roulette/engine';
 import type { RouletteAction, RouletteState } from 'engines/roulette/types';
+import { RouletteStateSchema } from 'engines/roulette/state.schema';
 import { defaultRng } from 'engines/rng';
 import { appendHandEvent, HAND_INITIALIZED } from 'lib/handEvents';
 import { broadcastBus, type BroadcastedHandEvent } from 'lib/broadcastBus.server';
@@ -253,10 +254,7 @@ async function buildUserMap(
 }
 
 function parseState(raw: unknown): RouletteState {
-  if (!raw || typeof raw !== 'object' || (raw as { type?: string }).type !== 'roulette') {
-    throw new Error('rouletteEngine: hand.data does not look like a roulette state');
-  }
-  return raw as RouletteState;
+  return RouletteStateSchema.parse(raw) as RouletteState;
 }
 
 /**

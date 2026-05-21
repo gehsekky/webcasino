@@ -4,6 +4,7 @@ import { prisma, type PrismaTransactionClient } from 'db.server';
 import { recordMoneyTransaction } from './moneyTransaction.server';
 import { holdemEngine } from 'engines/poker/holdem/engine';
 import type { HoldemAction, HoldemState } from 'engines/poker/holdem/types';
+import { HoldemStateSchema } from 'engines/poker/holdem/state.schema';
 import { defaultRng } from 'engines/rng';
 import { appendHandEvent, HAND_INITIALIZED } from 'lib/handEvents';
 import { broadcastBus, type BroadcastedHandEvent } from 'lib/broadcastBus.server';
@@ -388,10 +389,7 @@ async function buildUserMap(
 }
 
 function parseState(raw: unknown): HoldemState {
-  if (!raw || typeof raw !== 'object' || (raw as { type?: string }).type !== 'holdem') {
-    throw new Error('holdemEngine: hand.data does not look like a holdem state');
-  }
-  return raw as HoldemState;
+  return HoldemStateSchema.parse(raw) as HoldemState;
 }
 
 /**

@@ -4,6 +4,7 @@ import { prisma, type PrismaTransactionClient } from 'db.server';
 import { recordMoneyTransaction } from './moneyTransaction.server';
 import { slotsEngine } from 'engines/slots/engine';
 import type { SlotsAction, SlotsState } from 'engines/slots/types';
+import { SlotsStateSchema } from 'engines/slots/state.schema';
 import { defaultRng } from 'engines/rng';
 import { appendHandEvent, HAND_INITIALIZED } from 'lib/handEvents';
 import { broadcastBus, type BroadcastedHandEvent } from 'lib/broadcastBus.server';
@@ -176,10 +177,7 @@ export async function submitSlotsAction(params: {
 }
 
 function parseState(raw: unknown): SlotsState {
-  if (!raw || typeof raw !== 'object' || (raw as { type?: string }).type !== 'slots') {
-    throw new Error('slotsEngine: hand.data does not look like a slots state');
-  }
-  return raw as SlotsState;
+  return SlotsStateSchema.parse(raw) as SlotsState;
 }
 
 /** Per-hand tx-scoped advisory lock, same pattern as the other engines. */
