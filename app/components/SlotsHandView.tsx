@@ -295,7 +295,13 @@ function SpinAgain({ roomId, winning }: { roomId: string; winning: boolean }) {
     <Form method="post" action={`/rooms/${roomId}`} className="inline-block">
       <AuthenticityTokenInput />
       <input type="hidden" name="intent" value="start_hand" />
-      <button type="submit" className={buttonClass({ variant: winning ? 'success' : 'primary' })}>
+      <button
+        type="submit"
+        className={buttonClass({
+          variant: winning ? 'success' : 'primary',
+          tone: winning ? 'light' : 'dark',
+        })}
+      >
         Spin Again
       </button>
     </Form>

@@ -78,7 +78,10 @@ export default function HoldemOutcomeBanner({
             <input type="hidden" name="intent" value="start_hand" />
             <button
               type="submit"
-              className={buttonClass({ variant: viewerWon ? 'success' : 'primary' })}
+              className={buttonClass({
+                variant: viewerWon ? 'success' : 'primary',
+                tone: viewerWon ? 'light' : 'dark',
+              })}
             >
               Start Next Hand
             </button>

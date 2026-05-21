@@ -477,6 +477,7 @@ function BettingBoard({
         {/* Zero cell — spans all 3 number rows. */}
         <button
           type="button"
+          aria-label="Straight bet on 0 (green)"
           onClick={() => onSelect({ kind: 'straight', number: 0 })}
           className={cellClass(
             'bg-emerald-700 hover:bg-emerald-600 text-white',
@@ -586,13 +587,15 @@ function NumberRow({
     <>
       {row.map((n) => {
         const isSelected = sameBet(selected, { kind: 'straight', number: n });
-        const colorClass = isRed(n)
+        const red = isRed(n);
+        const colorClass = red
           ? 'bg-red-700 hover:bg-red-600 text-white'
           : 'bg-slate-900 hover:bg-slate-800 text-white';
         return (
           <button
             key={n}
             type="button"
+            aria-label={`Straight bet on ${n} (${red ? 'red' : 'black'})`}
             onClick={() => onSelect({ kind: 'straight', number: n })}
             className={cellClass(colorClass, isSelected)}
           >
@@ -632,6 +635,7 @@ function BoardCell({
   return (
     <button
       type="button"
+      aria-label={`${BET_LABEL[kind]} bet — pays ${BET_PAYOUT[kind]}:1`}
       onClick={() => onSelect({ kind })}
       className={cellClass(colorClass, isSelected)}
       title={title}
@@ -706,7 +710,13 @@ function SettledPanel({
           <Form method="post" action={`/rooms/${roomId}`} className="inline-block">
             <AuthenticityTokenInput />
             <input type="hidden" name="intent" value="start_hand" />
-            <button type="submit" className={buttonClass({ variant: won ? 'success' : 'primary' })}>
+            <button
+              type="submit"
+              className={buttonClass({
+                variant: won ? 'success' : 'primary',
+                tone: won ? 'light' : 'dark',
+              })}
+            >
               Start Next Round
             </button>
           </Form>

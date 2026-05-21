@@ -158,7 +158,10 @@ function BannerShell({
             <input type="hidden" name="intent" value="start_hand" />
             <button
               type="submit"
-              className={buttonClass({ variant: winning ? 'success' : 'primary' })}
+              className={buttonClass({
+                variant: winning ? 'success' : 'primary',
+                tone: winning ? 'light' : 'dark',
+              })}
             >
               Start Next Hand
             </button>

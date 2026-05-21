@@ -120,8 +120,14 @@ export default function HoldemHandView({
 }
 
 function SittingOutBanner() {
+  // role="status" + aria-live="polite" so screen readers hear the
+  // banner when it appears (e.g., right after the auto-fold lands).
   return (
-    <div className="rounded-xl bg-amber-900/40 ring-1 ring-amber-600/50 text-amber-100 px-5 py-4 text-center">
+    <div
+      role="status"
+      aria-live="polite"
+      className="rounded-xl bg-amber-900/40 ring-1 ring-amber-600/50 text-amber-100 px-5 py-4 text-center"
+    >
       <p className="text-sm font-semibold uppercase tracking-wide">You&apos;re sitting out</p>
       <p className="mt-1 text-xs opacity-80">
         You were auto-folded for missing your turn. You&apos;ll be skipped from the next hand until
