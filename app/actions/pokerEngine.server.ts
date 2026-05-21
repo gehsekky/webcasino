@@ -459,7 +459,8 @@ void runAiCascade; // exported as an indirect smoke import — keeps the file's 
 /** Per-hand tx-scoped advisory lock, same pattern as handEngine. */
 async function acquirePokerHandLock(tx: PrismaTransactionClient, handId: string): Promise<void> {
   const key = handAdvisoryLockKey(handId);
-  await tx.$queryRawUnsafe<unknown[]>(`SELECT pg_advisory_xact_lock(${key.toString()})`);
+  // $executeRawUnsafe — the function returns void; $queryRaw* fails on void.
+  await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${key.toString()})`);
 }
 
 function rearmPokerDeadline(handId: string, state: FiveCardDrawState): void {

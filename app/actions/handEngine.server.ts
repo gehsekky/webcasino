@@ -531,9 +531,10 @@ export function parseBlackjackActionFromForm(
 async function acquireHandLock(tx: PrismaTransactionClient, handId: string): Promise<void> {
   const key = handAdvisoryLockKey(handId);
   // Raw because Prisma's typed surface doesn't expose pg_advisory_xact_lock.
-  // The cast goes through tx.$queryRawUnsafe with a literal key (bigint) —
-  // no user input flows into the SQL.
-  await tx.$queryRawUnsafe<unknown[]>(`SELECT pg_advisory_xact_lock(${key.toString()})`);
+  // $executeRawUnsafe (not $queryRawUnsafe) because the function returns
+  // void — $queryRaw* tries to deserialize a result column and fails.
+  // The key is a literal bigint; no user input flows into the SQL.
+  await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${key.toString()})`);
 }
 
 /**

@@ -429,7 +429,8 @@ export function parseHoldemActionFromForm(
 
 async function acquireHoldemHandLock(tx: PrismaTransactionClient, handId: string): Promise<void> {
   const key = handAdvisoryLockKey(handId);
-  await tx.$queryRawUnsafe<unknown[]>(`SELECT pg_advisory_xact_lock(${key.toString()})`);
+  // $executeRawUnsafe — the function returns void; $queryRaw* fails on void.
+  await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${key.toString()})`);
 }
 
 function rearmHoldemDeadline(handId: string, state: HoldemState): void {
