@@ -8,3 +8,6 @@ node_modules
 /test-results
 /playwright-report
 /playwright/.cache
+
+# Claude Code local agent state (per-repo settings, conversation logs)
+.claude/
