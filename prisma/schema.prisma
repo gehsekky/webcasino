@@ -102,6 +102,12 @@ model seat {
   table_id     String       @db.Uuid
   user_id      String       @db.Uuid
   position     Int
+  /// Voluntary or auto sit-out: when true, the seat exists at the table
+  /// but its owner is skipped from the next hand's participants (their
+  /// position becomes an AI fill). Flipped automatically when the seat's
+  /// owner times out (currently Hold'em only); user clears it via the
+  /// "Rejoin next hand" button.
+  sitting_out  Boolean      @default(false)
   updated_at   DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
   created_at   DateTime     @default(now()) @db.Timestamptz(6)
   casino_table casino_table @relation(fields: [table_id], references: [id], onDelete: Cascade)

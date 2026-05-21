@@ -486,7 +486,7 @@ export async function startHand(params: {
     include: {
       seat: {
         orderBy: { position: 'asc' },
-        select: { id: true, user_id: true, position: true },
+        select: { id: true, user_id: true, position: true, sitting_out: true },
       },
       hand: {
         orderBy: { created_at: 'desc' },
@@ -512,8 +512,10 @@ export async function startHand(params: {
 
   // Resolve participants: humans from persistent seats + AI fills for
   // empty positions. Sort by position so the engine's player order
-  // matches the table layout.
-  const positionsTaken = new Set(room.seat.map((s) => s.position));
+  // matches the table layout. Sitting-out seats are treated as empty —
+  // an AI fill takes their position for this hand.
+  const playingSeats = room.seat.filter((s) => !s.sitting_out);
+  const positionsTaken = new Set(playingSeats.map((s) => s.position));
   const openPositions: number[] = [];
   for (let p = 1; p <= room.max_seats; p++) {
     if (!positionsTaken.has(p)) openPositions.push(p);
@@ -529,7 +531,7 @@ export async function startHand(params: {
     position: number;
   };
   const participants: Participant[] = [
-    ...room.seat.map((s) => ({
+    ...playingSeats.map((s) => ({
       userId: s.user_id,
       seatId: s.id,
       position: s.position,

@@ -1,4 +1,5 @@
-import { Link } from '@remix-run/react';
+import { Form, Link } from '@remix-run/react';
+import { AuthenticityTokenInput } from 'remix-utils/csrf/react';
 import type { HoldemView } from 'engines/poker/holdem/types';
 import { useHoldemView } from 'hooks/useHoldemView';
 import PokerSeat from './PokerSeat';
@@ -16,6 +17,12 @@ type HoldemHandViewProps = {
   initialView: HoldemView;
   viewerName: string;
   participants: Record<string, { name: string; isAi: boolean }>;
+  /**
+   * True when the viewer's persistent room seat is currently flagged
+   * `sitting_out` — typically because they were auto-folded in this or
+   * an earlier hand and haven't rejoined yet.
+   */
+  viewerSittingOut: boolean;
 };
 
 const PHASE_LABEL: Record<HoldemView['phase'], string> = {
@@ -36,6 +43,7 @@ export default function HoldemHandView({
   initialView,
   viewerName,
   participants,
+  viewerSittingOut,
 }: HoldemHandViewProps) {
   const { view, status } = useHoldemView(roomId, initialView);
   const isSpectator = handSeatId === null;
@@ -85,7 +93,8 @@ export default function HoldemHandView({
         </div>
 
         <div className="pt-2">
-          {isSpectator && view.phase !== 'settled' && (
+          {viewerSittingOut && <SittingOutBanner />}
+          {isSpectator && !viewerSittingOut && view.phase !== 'settled' && (
             <p className="text-center text-emerald-200/80 italic">
               spectating — you join the next hand
             </p>
@@ -107,6 +116,28 @@ export default function HoldemHandView({
         </div>
       </div>
     </main>
+  );
+}
+
+function SittingOutBanner() {
+  return (
+    <div className="rounded-xl bg-amber-900/40 ring-1 ring-amber-600/50 text-amber-100 px-5 py-4 text-center">
+      <p className="text-sm font-semibold uppercase tracking-wide">You&apos;re sitting out</p>
+      <p className="mt-1 text-xs opacity-80">
+        You were auto-folded for missing your turn. You&apos;ll be skipped from the next hand until
+        you rejoin.
+      </p>
+      <Form method="post" className="mt-3">
+        <AuthenticityTokenInput />
+        <input type="hidden" name="intent" value="rejoin_next_hand" />
+        <button
+          type="submit"
+          className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-amber-400"
+        >
+          Rejoin next hand
+        </button>
+      </Form>
+    </div>
   );
 }
 

@@ -486,6 +486,20 @@ export async function fireHoldemTurnTimeout(handId: string): Promise<void> {
       state_after: cursor as unknown as never,
     });
 
+    // Move the timed-out player into sit-out for subsequent hands.
+    // hand_seat.seat_id is non-null for humans (AI fills are null, but
+    // we already short-circuited above on is_ai !== false).
+    const actingSeat = await tx.hand_seat.findUnique({
+      where: { id: acting },
+      select: { seat_id: true },
+    });
+    if (actingSeat?.seat_id) {
+      await tx.seat.update({
+        where: { id: actingSeat.seat_id },
+        data: { sitting_out: true },
+      });
+    }
+
     const isAI = (slotId: string) => userMap.get(slotId)?.is_ai === true;
     while (!holdemEngine.isTerminal(cursor) && cursor.toAct !== null && isAI(cursor.toAct)) {
       const aiActing = cursor.toAct;

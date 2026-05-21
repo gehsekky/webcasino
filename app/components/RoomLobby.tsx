@@ -22,6 +22,8 @@ type RoomSeatRow = {
   isAi: boolean;
   isViewer: boolean;
   isCreator: boolean;
+  /** True when this seat is currently flagged out of rotation. */
+  sittingOut: boolean;
 };
 
 type RoomLobbyProps = {
@@ -104,13 +106,30 @@ export default function RoomLobby({ room, seats }: RoomLobbyProps) {
                     Seat {pos}
                   </span>
                   {s ? (
-                    <span className="text-sm text-white">
-                      {s.name}
-                      {s.isViewer && (
-                        <span className="ml-2 text-xs text-emerald-300 lowercase">(you)</span>
-                      )}
-                      {s.isCreator && (
-                        <span className="ml-2 text-xs text-yellow-300 uppercase">creator</span>
+                    <span className="flex items-center gap-2 text-sm text-white">
+                      <span>
+                        {s.name}
+                        {s.isViewer && (
+                          <span className="ml-2 text-xs text-emerald-300 lowercase">(you)</span>
+                        )}
+                        {s.isCreator && (
+                          <span className="ml-2 text-xs text-yellow-300 uppercase">creator</span>
+                        )}
+                        {s.sittingOut && (
+                          <span className="ml-2 text-xs text-amber-300 uppercase">sitting out</span>
+                        )}
+                      </span>
+                      {s.isViewer && s.sittingOut && (
+                        <Form method="post" action={`/rooms/${room.id}`}>
+                          <AuthenticityTokenInput />
+                          <input type="hidden" name="intent" value="rejoin_next_hand" />
+                          <button
+                            type="submit"
+                            className="rounded bg-amber-500 px-2 py-1 text-xs font-semibold text-slate-900 hover:bg-amber-400"
+                          >
+                            Rejoin next hand
+                          </button>
+                        </Form>
                       )}
                     </span>
                   ) : (

@@ -43,6 +43,8 @@ type RoomSeatSummary = {
   isAi: boolean;
   isViewer: boolean;
   isCreator: boolean;
+  /** True when this seat is currently out of rotation (timed-out auto-fold). */
+  sittingOut: boolean;
 };
 
 const GAME_LABEL: Record<RoomGameType, string> = {
@@ -92,6 +94,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     isAi: s.user.is_ai,
     isViewer: s.user_id === user.id,
     isCreator: s.user_id === room.created_by,
+    sittingOut: s.sitting_out,
   }));
 
   const viewer = { id: user.id, name: user.name };
@@ -169,6 +172,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   if (handStateType === 'holdem') {
     const state = latest.data as unknown as HoldemState;
     const view = holdemEngine.viewFor(state, projectionTarget);
+    const viewerSeat = seats.find((s) => s.isViewer);
     return json({
       mode: 'hand_holdem' as const,
       room: roomSummary,
@@ -179,6 +183,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       view,
       participants,
       chatMessages,
+      viewerSittingOut: viewerSeat?.sittingOut ?? false,
     });
   }
 
@@ -290,6 +295,16 @@ export async function action({ request, params }: ActionFunctionArgs) {
     return redirect('/');
   }
 
+  if (intent === 'rejoin_next_hand') {
+    // Flip the viewer's own seat back into rotation. Idempotent — if
+    // the seat isn't sitting out, this is a no-op.
+    await prisma.seat.updateMany({
+      where: { table_id: roomId, user_id: user.id, sitting_out: true },
+      data: { sitting_out: false },
+    });
+    return redirect(`/rooms/${roomId}`);
+  }
+
   if (intent === 'switch_game') {
     const target = formData.get('gameType')?.toString() ?? '';
     const ALLOWED_GAMES: RoomGameType[] = ['blackjack', 'poker', 'holdem', 'slots', 'roulette'];
@@ -390,6 +405,7 @@ export default function RoomRoute() {
         initialView={data.view as unknown as HoldemView}
         viewerName={data.viewer.name}
         participants={data.participants}
+        viewerSittingOut={data.viewerSittingOut}
       />
     ) : data.mode === 'hand_slots' ? (
       <SlotsHandView
