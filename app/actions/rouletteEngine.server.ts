@@ -36,24 +36,49 @@ export async function startRouletteHand(params: {
     throw new Error('startRouletteHand: at least one participant required');
   }
   const cfg = params.config;
+
+  // We need to know which participants are AI ahead of time so we can
+  // pre-populate their bets in the initial state. Look up `is_ai` once.
+  const userIds = params.participants.map((p) => p.userId);
+  const users = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, is_ai: true },
+  });
+  const isAiByUserId = new Map(users.map((u) => [u.id, u.is_ai]));
+
   const pendingBroadcasts: BroadcastedHandEvent[] = [];
 
   const result = await prisma.$transaction(async (tx) => {
     const handId = randomUUID();
     const handSeatIds = params.participants.map(() => randomUUID());
 
-    const initialState = rouletteEngine.initialState(
+    let state = rouletteEngine.initialState(
       { minimumBet: cfg.minimumBet, maximumBet: cfg.maximumBet },
       handSeatIds,
       defaultRng,
     );
+
+    // AI participants place 1-3 random bets up front. Humans place
+    // theirs interactively via submitRouletteAction. The engine's
+    // aiAction picks a bet kind (70% outside / 30% straight) and an
+    // amount within the table's range.
+    for (let i = 0; i < params.participants.length; i++) {
+      const p = params.participants[i];
+      if (!isAiByUserId.get(p.userId)) continue;
+      const slotId = handSeatIds[i];
+      const numBets = 1 + defaultRng.randInt(3); // 1, 2, or 3
+      for (let b = 0; b < numBets; b++) {
+        const action = rouletteEngine.aiAction!(state, slotId, defaultRng);
+        state = rouletteEngine.applyAction(state, slotId, action, defaultRng);
+      }
+    }
 
     await tx.hand.create({
       data: {
         id: handId,
         table_id: params.roomId,
         created_by: params.creatorId,
-        data: initialState as unknown as Prisma.JsonObject,
+        data: state as unknown as Prisma.JsonObject,
       },
     });
 
@@ -70,17 +95,37 @@ export async function startRouletteHand(params: {
       });
     }
 
+    // Debit AI users for the bets they just placed. Humans get debited
+    // later via the per-action diff in submitRouletteAction, so any slot
+    // with totalStake > 0 right now must be AI.
+    for (let i = 0; i < params.participants.length; i++) {
+      const p = params.participants[i];
+      const slot = state.players[i];
+      if (slot.totalStake > 0) {
+        await recordMoneyTransaction(
+          {
+            userId: p.userId,
+            type: 'debit',
+            amount: slot.totalStake,
+            gamePlayerId: handSeatIds[i],
+            note: 'reserve:ai_bets',
+          },
+          tx,
+        );
+      }
+    }
+
     const bootSeq = await appendHandEvent(
       handId,
-      { action: HAND_INITIALIZED, actorId: null, payload: { initialState } },
+      { action: HAND_INITIALIZED, actorId: null, payload: { initialState: state } },
       tx,
     );
     pendingBroadcasts.push({
       action: HAND_INITIALIZED,
       actor_id: null,
-      payload: { initialState },
+      payload: { initialState: state },
       sequence: bootSeq,
-      state_after: initialState as unknown as never,
+      state_after: state as unknown as never,
     });
 
     return { handId };

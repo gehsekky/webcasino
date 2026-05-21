@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { GameEngine, SettlementOrder } from '../types';
+import type { GameEngine, RNG, SettlementOrder } from '../types';
 import {
   BET_PAYOUT,
   isBlack,
@@ -12,6 +12,27 @@ import {
   type RouletteState,
   type RouletteView,
 } from './types';
+
+/**
+ * Casual-play AI bet menu. We bias toward outside bets (red/black/odd/
+ * even/low/high/dozens/columns) — that's what a recreational player
+ * spreads chips on most of the time. Straights show up occasionally
+ * (~30%) so the table has some variety.
+ */
+const OUTSIDE_BET_KINDS: BetKind[] = [
+  'red',
+  'black',
+  'odd',
+  'even',
+  'low',
+  'high',
+  'dozen1',
+  'dozen2',
+  'dozen3',
+  'column1',
+  'column2',
+  'column3',
+];
 
 /**
  * European single-zero roulette engine. Players accumulate bets during
@@ -189,6 +210,10 @@ export const rouletteEngine: GameEngine<
     };
   },
 
+  aiAction(state, slotId, rng) {
+    return rouletteAiAction(state, slotId, rng);
+  },
+
   isTerminal(state) {
     return state.phase === 'settled';
   },
@@ -201,3 +226,32 @@ export const rouletteEngine: GameEngine<
     });
   },
 };
+
+/**
+ * Pick a single `place_bet` action for an AI player. 70% outside-bet,
+ * 30% straight-on-a-random-number, amount between table-min and 3×min
+ * (capped at table-max). The wrapper drives the bet count (calls this
+ * 1-3 times per AI slot before the hand commits).
+ */
+function rouletteAiAction(state: RouletteState, slotId: string, rng: RNG): RouletteAction {
+  const min = state.config.minimumBet;
+  const cap = Math.min(state.config.maximumBet, min * 3);
+  // randInt(span+1) for inclusive upper bound; falls back to min when
+  // the cap collapses to the minimum (very narrow bet bounds).
+  const amount = cap > min ? min + rng.randInt(cap - min + 1) : min;
+
+  const goStraight = rng.randInt(10) < 3; // 30%
+  if (goStraight) {
+    return {
+      kind: 'place_bet',
+      playerId: slotId,
+      bet: { kind: 'straight', amount, number: rng.randInt(37) },
+    };
+  }
+  const betKind = OUTSIDE_BET_KINDS[rng.randInt(OUTSIDE_BET_KINDS.length)];
+  return {
+    kind: 'place_bet',
+    playerId: slotId,
+    bet: { kind: betKind, amount },
+  };
+}

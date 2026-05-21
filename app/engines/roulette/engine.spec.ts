@@ -99,6 +99,49 @@ describe('roulette engine', () => {
     expect(state.players.find((p) => p.id === 'b')!.winnings).toBe(0);
   });
 
+  it('aiAction produces legal place_bet actions across many seeds', () => {
+    // Run 200 calls with a sweep of seeds and assert every output is a
+    // place_bet, has an amount in [min, 3*min], straights have a valid
+    // number, and applying it to the state succeeds.
+    const cfg = { minimumBet: 5, maximumBet: 100 };
+    const initial = rouletteEngine.initialState(cfg, ['p'], fixedRng([0]));
+    for (let seed = 0; seed < 200; seed++) {
+      const rng = fixedRng([seed, seed * 3, seed * 7, seed * 11]);
+      const action = rouletteEngine.aiAction!(initial, 'p', rng);
+      expect(action.kind).toBe('place_bet');
+      if (action.kind !== 'place_bet') continue;
+      expect(action.bet.amount).toBeGreaterThanOrEqual(cfg.minimumBet);
+      expect(action.bet.amount).toBeLessThanOrEqual(cfg.minimumBet * 3);
+      if (action.bet.kind === 'straight') {
+        expect(action.bet.number).toBeGreaterThanOrEqual(0);
+        expect(action.bet.number).toBeLessThanOrEqual(36);
+      } else {
+        expect(action.bet.number).toBeUndefined();
+      }
+      // Engine accepts it without throwing.
+      const next = rouletteEngine.applyAction(initial, 'p', action, rng);
+      expect(next.players[0].bets).toHaveLength(1);
+    }
+  });
+
+  it('aiAction outputs a mix of straight and outside bets', () => {
+    // Sanity check: across many seeds, we should see both branches at
+    // least sometimes (~30% straight, ~70% outside per the engine).
+    const cfg = { minimumBet: 5, maximumBet: 100 };
+    const initial = rouletteEngine.initialState(cfg, ['p'], fixedRng([0]));
+    let straight = 0;
+    let outside = 0;
+    for (let seed = 0; seed < 200; seed++) {
+      const rng = fixedRng([seed, seed + 1, seed + 2, seed + 3]);
+      const action = rouletteEngine.aiAction!(initial, 'p', rng);
+      if (action.kind !== 'place_bet') continue;
+      if (action.bet.kind === 'straight') straight += 1;
+      else outside += 1;
+    }
+    expect(straight).toBeGreaterThan(0);
+    expect(outside).toBeGreaterThan(0);
+  });
+
   it('rejects straight bets without a number', () => {
     const rng = fixedRng([0]);
     const state = rouletteEngine.initialState({ minimumBet: 1, maximumBet: 100 }, ['p'], rng);
