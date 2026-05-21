@@ -330,7 +330,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const latest = await prisma.hand.findFirst({
     where: { table_id: roomId },
     orderBy: { created_at: 'desc' },
-    include: { casino_table: { select: { game_type: true } } },
+    include: { casino_table: { select: { game_type: true, created_by: true } } },
   });
   if (!latest) throw new Response('no hand at this room', { status: 400 });
   const state = latest.data as { phase?: string };
@@ -359,6 +359,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
     await submitSlotsAction({ handSeatId: handSeat.id, action: parsed });
   } else if (stateType === 'roulette') {
     const parsed = parseRouletteActionFromForm(submitValue, formData, handSeat.id);
+    // Spin closes the round and settles bets — only the room creator
+    // is allowed to trigger it. UI hides the button for everyone else
+    // already; this is the server-side enforcement.
+    if (parsed.kind === 'spin' && latest.casino_table.created_by !== user.id) {
+      throw new Response('only the room creator can spin', { status: 403 });
+    }
     await submitRouletteAction({ handSeatId: handSeat.id, action: parsed });
   } else {
     const parsed = parseBlackjackActionFromForm(submitValue, formData, handSeat.id);

@@ -7,6 +7,7 @@ import type { RouletteAction, RouletteState } from 'engines/roulette/types';
 import { defaultRng } from 'engines/rng';
 import { appendHandEvent, HAND_INITIALIZED } from 'lib/handEvents';
 import { broadcastBus, type BroadcastedHandEvent } from 'lib/broadcastBus.server';
+import { handAdvisoryLockKey } from 'lib/turnDeadlineService.server';
 import type { HandParticipant } from './handEngine.server';
 
 /**
@@ -152,7 +153,19 @@ export async function submitRouletteAction(params: {
     if (!handSeat) throw new Error('rouletteEngine: hand_seat not found');
     handIdForBroadcast = handSeat.hand_id;
 
-    let state = parseState(handSeat.hand.data);
+    // Per-hand advisory lock: serializes concurrent place_bet / spin
+    // calls so the engine's phase check sees committed state. Without
+    // this, a place_bet read under awaiting_bets could overwrite a
+    // just-committed spin (or vice versa). Released at tx end.
+    await acquireRouletteHandLock(tx, handSeat.hand_id);
+    // Re-read hand.data after the lock so we see any committed update
+    // from the tx we just serialized behind.
+    const fresh = await tx.hand.findUnique({
+      where: { id: handSeat.hand_id },
+      select: { data: true },
+    });
+    if (!fresh) throw new Error('rouletteEngine: hand vanished mid-action');
+    let state = parseState(fresh.data);
     const userMap = await buildUserMap(
       tx,
       state.players.map((p) => p.id),
@@ -273,4 +286,10 @@ export function parseRouletteActionFromForm(
     };
   }
   throw new Error(`unknown roulette submit value: ${submitValue}`);
+}
+
+/** Per-hand tx-scoped advisory lock, same pattern as the other engines. */
+async function acquireRouletteHandLock(tx: PrismaTransactionClient, handId: string): Promise<void> {
+  const key = handAdvisoryLockKey(handId);
+  await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${key.toString()})`);
 }
