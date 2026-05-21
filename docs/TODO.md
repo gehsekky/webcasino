@@ -5,10 +5,11 @@ Roughly ordered by ROI within each section.
 
 > **Current focus (2026-05-20):** Five games live (blackjack, 5-card
 > draw, Texas Hold'em, slots, roulette) on the multiplayer room model
-> with chat, room naming, and mid-room game switching. UI is being
-> iterated actively now — the earlier "defer all UI" gate is lifted.
-> Next-up candidates: production-readiness items, smarter Hold'em AI,
-> Hold'em dealer-button rotation, and the deferred major-version migs.
+> with chat, room naming, room archival, and mid-room game switching.
+> UI is being iterated actively — the earlier "defer all UI" gate is
+> lifted. Next-up candidates: production-readiness items (`/healthz`,
+> structured logs, Sentry), smarter Hold'em AI, "show archived rooms"
+> filter, and the deferred major-version migrations.
 
 ## Critical correctness bugs
 
@@ -30,7 +31,7 @@ Roughly ordered by ROI within each section.
 - [x] **Multiplayer rooms.** `casino_table` is now a persistent room with `name`, `join_token`, `max_seats`, `created_by`. Roster lives in `seat` rows; hands live in `hand` rows. Room-centric URLs (`/rooms/$roomId`). _(Done in earlier sprint; commit 1fd0ce6.)_
 - [x] **Room naming.** `casino_table.name VARCHAR(128) NOT NULL`, unique per creator. Migration backfills existing rows. Surfaced in landing page room list, in-room header, and invitation list. `CreateGameModal` requires it.
 - [x] **Invitations + join tokens.** `table_invitation` row per (room, user). Pending/accepted/declined lifecycle. Shareable `/join/$token` URL upserts a pending invite or sends already-seated users straight in.
-- [x] **AI auto-fill.** Empty seats are filled with bot users when a hand starts; the pool of bot users is provisioned in `app/auth/aiUsers.server.ts`. Bots already in another active hand are skipped. _(Commits 836a301, 3ba6616.)_
+- [x] **AI auto-fill.** Empty seats are filled with bot users when a hand starts. Bots are **ephemeral per hand** — `getAvailableAIUsers(n)` mints fresh `user` rows on every call with names picked from `AI_NAMES` (Fisher-Yates without repetition). No pool, no "busy" tracking, no exhaustion. Old bot rows stay as dead data; could be GC'd periodically once the table grows. _(Earlier sprint commits 836a301, 3ba6616 introduced the pool; later commit 4390258 replaced it with the ephemeral strategy after the pool kept running out under e2e load.)_
 - [x] **Game switching mid-room.** Creator-only `switchRoomGame` action (`app/actions/tableLifecycle.server.ts`) validates seat-count compatibility against the new game's `GAME_SEAT_RANGES`. Submit triggers an immediate `startHand` of the new game so the table doesn't sit idle. `GameSwitcher` renders inline (read-only label for non-creators).
 - [x] **Real-time chat.** Persisted `chat_message` table (cascade-deleted with room); `chatBus` (room-keyed `EventBus`) layers realtime delivery on top. SSE `/rooms/$roomId/events` forwards `chat_message` events. `ChatPane` does an initial-scrollback render from the loader, merges incoming SSE messages by id, auto-scrolls; composer is a textarea with Enter-to-send / Shift+Enter newline. Layout is a two-pane grid (chat on the right at lg+, stacked below on mobile).
 - [x] **Avatar component.** Deterministic initials + name-hashed HSL color (`app/components/Avatar.tsx`). AI seats get a gear glyph + neutral gray so bots are visually distinct.
@@ -40,8 +41,9 @@ Roughly ordered by ROI within each section.
   - 5-Card Draw (`engines/poker/fiveCardDraw/`) — antes, two betting rounds, draw phase, showdown via shared hand-eval.
   - Texas Hold'em (`engines/poker/holdem/`) — small/big blinds, BB option enforced via `hasActedThisRound`, four streets (preflop → flop → turn → river), best-5-of-7 showdown via shared `bestHandFrom`, fast-forward to showdown when only one player can still bet. Dealer button currently fixed at seat 0 (see backlog).
   - Slots (`engines/slots/`) — single-seat, 3 reels of 5 symbols, three-of-a-kind + two-sevens payouts.
-  - Roulette (`engines/roulette/`) — European single-zero (0-36), 13 bet kinds (straight + 12 outside), multi-player.
-- [x] **E2E tests.** Playwright + chromium installed; `playwright.config.ts` boots its own dev server with `E2E_AUTH_BYPASS=1`. A test-only `/test-auth/login` route (refuses unless the env var is set AND `NODE_ENV !== 'production'`) lets the auth fixture in `e2e/fixtures.ts` skip the real Google OAuth. Nine specs across `landing.spec.ts`, `room.spec.ts`, and `new-games.spec.ts`. Runs in ~8s locally via `npm run e2e`.
+  - Roulette (`engines/roulette/`) — European single-zero (0-36), 13 bet kinds (straight + 12 outside), multi-player. Standard rectangular betting felt rendered as a clickable grid (0 + 3×12 numbers + 2:1 column triggers + dozens + outside-bet row). "Your bets" panel inside the form lists existing wagers with colored swatches so the user doesn't accidentally double-bet.
+- [x] **E2E tests.** Playwright + chromium. `e2e/global-setup.ts` bootstraps an isolated `db_webcasino_test` database (create-if-missing, `prisma migrate deploy`, truncate-all) on every run, and `webServer.env` passes `PORT=5274`, `DATABASE_URL=...test...`, `E2E_AUTH_BYPASS=1` to a freshly-spawned dev server so it can coexist with a developer's local `npm run dev` on 5273. `vite.config.ts` reads `PORT` from env to support this. A test-only `/test-auth/login` route (refuses unless `E2E_AUTH_BYPASS=1` AND `NODE_ENV !== 'production'`) lets the auth fixture skip Google OAuth. Nine specs across `landing.spec.ts`, `room.spec.ts`, and `new-games.spec.ts`. Runs in ~10s locally via `npm run e2e`; idempotent across repeated runs (no state pollution).
+- [x] **Room archival.** Creator-only soft-delete via `archiveRoom` in `tableLifecycle.server.ts` — refuses mid-hand, sets `casino_table.archived_at = now()`. Hidden from `listUserRooms`, `listUserInvitations`, `joinViaToken`, `acceptInvitation`, `startHand`, `switchRoomGame`, the room loader (redirects to landing), and the SSE events route. Historical hand/chat/transaction data is preserved. Small "✕ Close room" button in the room header (creator-only, JS confirm prompt). Future "show archived" toggle would relax the `archived_at IS NULL` filter on the list queries.
 
 ### Open backlog from this batch
 
@@ -49,17 +51,19 @@ Roughly ordered by ROI within each section.
 - [x] **Slots / roulette views subscribe to SSE.** `useSlotsView` + `useRouletteView` hooks parallel the other game views; both views now consume `view, status` and render a `ConnectionStatus`. Multi-player roulette gets live "X placed a bet" updates without manual refresh.
 - [x] **Roulette wheel spin animation.** Same strip-translates-downward pattern as slots but framed in the circular wheel window (41 cells × 7.5rem, 2.4s with long-tail ease). New `wheel-spin-down` keyframe in `tailwind.css`.
 - [x] **Room title bar showed "BLACKJACK" for every non-poker game.** Stale ternary in `rooms.$roomId.tsx` replaced with a `GAME_LABEL` map covering all five games.
-- [ ] **Roulette: more bet types.** Corners, streets, splits, six-line. Engine extension point is `BetKind` + `isWinningBet`; UI extension is the bet-kind select. Out of scope for v1.
+- [ ] **Roulette: more bet types.** Corners, streets, splits, six-line. Engine extension point is `BetKind` + `isWinningBet`; UI extension is straightforward now that the board is a CSS grid (an intersection between number cells = corner, edge between adjacent rows = split, etc.). Out of scope for v1.
+- [ ] **Show-archived-rooms toggle.** Soft delete is live; surfacing the archived list is just a query filter relax and a UI checkbox on the landing page. Useful once someone wants to "reopen" a room (would also need an unarchive action).
 - [ ] **Hold'em AI is passive.** Calls pair-or-better, never raises. Same passive policy as 5-card draw. Plays for engagement, not strength. Tighten with pot odds + hand-strength tiers + occasional aggression once we have a feel for table dynamics.
 - [ ] **Poker engine code dedup.** 5-card draw and Hold'em both inline `freshDeck`/`shuffle`/`draw`/`deepClone`/`advanceWithinRound`/`endBettingRound`. Extract into `engines/poker/shared/` once both engines have settled.
 - [ ] **Animation primitives dedup.** Slots and roulette both use the strip-translates-downward pattern with separate keyframes (`reel-spin-down`, `wheel-spin-down`) and parallel component scaffolding. Extract a reusable `<SpinningStrip>` once a third caller appears.
+- [ ] **Periodic AI bot GC.** With ephemeral bots, old `is_ai: true` user rows accumulate forever. Cost is trivial today but a small cron / startup task could prune AI users whose only relations are to settled hands older than N days.
 - [ ] **Theme / color customization for rooms.** User-requested follow-up after room naming. Per-room color palette (felt color, accent), shown in the room header + chat. Schema: nullable `theme JSON` column or a small `room_theme` table.
 
 ## Type safety & data model
 
 - [x] **Replace `as unknown as` casts with runtime validation.** `app/lib/gameState.ts` defines `BlackjackStateSchema`, `GamePlayerStateSchema`, and a `GameStateSchema` discriminated union; `parseBlackjackState()` / `parseGamePlayerState()` validate at every read site across `actions/`, `routes/`, and `components/`. `Card.suit` and `Card.rank` narrowed to enum types so structural compatibility holds. Schema specs added in `gameState.spec.ts`. Remaining `as unknown as` sites are limited to Prisma's `JsonObject` write typing and the remix-auth Strategy interface cast. _(Done — task #5.)_
 - [x] **Lift stringly-typed enums to TS string literal unions.** The blackjack engine (`app/engines/blackjack/`) now uses discriminated-union `BlackjackAction` (`'place_bet' | 'hit' | 'stay' | 'double_down' | 'surrender' | 'dealer_play' | 'deal_initial'`) and a tight `PlayerStatus` union. Money transaction type narrowed to `'debit' | 'credit'` in `recordMoneyTransaction`. _(Done — task #6.)_
-- [x] **Reconcile schema source-of-truth.** Adopted Prisma Migrate. `prisma/schema.prisma` is the sole source of truth; baseline + `multiplayer_invites` + `chat_messages` + `room_name_and_game_switch` migrations applied. Container entrypoint runs `prisma migrate deploy` before app start.
+- [x] **Reconcile schema source-of-truth.** Adopted Prisma Migrate. `prisma/schema.prisma` is the sole source of truth; baseline + `multiplayer_invites` + `chat_messages` + `room_name_and_game_switch` + `room_archived_at` migrations applied. Container entrypoint runs `prisma migrate deploy` before app start.
 - [x] **Make `updated_at` automatic.** All `updated_at` columns in `schema.prisma` carry `@updatedAt`; the client maintains the timestamp on every UPDATE.
 - [ ] **Move deck out of the JSON blob (longer-term).** Every hit/stay rewrites the entire deck array in `hand.data`. Consider deriving deck state from a seed + dealt-cards log, or a per-card table. Now applies to all five games' state blobs, not just blackjack.
 - [ ] **Consider money in cents (longer-term).** `Math.floor(bet * 1.5)` already truncates on blackjack payouts; cents or `Decimal` would avoid this.
@@ -80,7 +84,7 @@ Roughly ordered by ROI within each section.
 
 ## Tooling & DX
 
-- [x] **Add unit tests.** Vitest + fast-check. 220 specs across 17 files. Test file convention: `*.spec.ts`.
+- [x] **Add unit tests.** Vitest + fast-check. 222 specs across 17 files. Test file convention: `*.spec.ts`.
 - [x] **Add E2E tests.** See "Multiplayer + game variety".
 - [x] **Add CI.** `.github/workflows/ci.yml` runs `npm ci`, `typecheck`, `lint`, `format:check`, and `test` on push to main and on PRs.
 - [x] **Add Prettier.** `.prettierrc.json` sets `singleQuote`, `trailingComma: 'all'`, `printWidth: 100`. `format:check` runs in CI.
