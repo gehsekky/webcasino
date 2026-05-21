@@ -3,6 +3,7 @@ import { Form, Link } from '@remix-run/react';
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react';
 import { buttonClass } from 'lib/buttonStyle';
 import GameSwitcher from './GameSwitcher';
+import SeatSwitcher from './SeatSwitcher';
 
 type RoomSummary = {
   id: string;
@@ -74,12 +75,21 @@ export default function RoomLobby({ room, seats }: RoomLobbyProps) {
           <p className="text-sm text-emerald-200/80 tabular-nums">
             Stakes ${room.minimumBet}–${room.maximumBet} · {room.maxSeats} seats
           </p>
-          <GameSwitcher
-            roomId={room.id}
-            currentGame={room.gameType as 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette'}
-            maxSeats={room.maxSeats}
-            isRoomCreator={room.isCreator}
-          />
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <GameSwitcher
+              roomId={room.id}
+              currentGame={room.gameType as 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette'}
+              maxSeats={room.maxSeats}
+              isRoomCreator={room.isCreator}
+            />
+            <SeatSwitcher
+              roomId={room.id}
+              currentGame={room.gameType as 'blackjack' | 'poker' | 'holdem' | 'slots' | 'roulette'}
+              maxSeats={room.maxSeats}
+              seatedCount={seats.length}
+              isRoomCreator={room.isCreator}
+            />
+          </div>
         </header>
 
         {/* Roster: shows persistent humans only. Empty positions are filled

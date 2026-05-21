@@ -79,6 +79,35 @@ test.describe('Roulette UI gating', () => {
   });
 });
 
+test.describe('Seat count change', () => {
+  test('creator can raise the seat count on a blackjack room', async ({ authedPage }) => {
+    const roomName = `e2e-seats-${Date.now()}`;
+    await createRoom(authedPage, { name: roomName, seats: 3 });
+
+    // Before: lobby header says "3 seats".
+    await expect(authedPage.getByText(/3 seats/i).first()).toBeVisible();
+
+    // Change via the SeatSwitcher input + Save.
+    await authedPage.getByLabel(/^Seats$/i).fill('5');
+    await authedPage.getByRole('button', { name: /^Save$/i }).click();
+
+    // After: lobby header says "5 seats".
+    await expect(authedPage.getByText(/5 seats/i).first()).toBeVisible({ timeout: 5_000 });
+  });
+
+  test('slots rooms have a read-only seats label, not an input', async ({ authedPage }) => {
+    const roomName = `e2e-slots-seats-${Date.now()}`;
+    await createRoom(authedPage, { name: roomName, game: 'slots', seats: 1 });
+
+    // The header still surfaces the count.
+    await expect(authedPage.getByText(/1 seats/i).first()).toBeVisible();
+    // And the read-only chip explicitly says the count is locked.
+    await expect(authedPage.getByText(/fixed for slots/i)).toBeVisible();
+    // The editable seats input shouldn't render at all.
+    await expect(authedPage.getByLabel(/^Seats$/i)).toHaveCount(0);
+  });
+});
+
 test.describe("Turn timeout (Hold'em)", () => {
   // Relies on playwright.config.ts setting TURN_DURATION_MS=2000 in the
   // dev-server env so the fold fires in ~2 seconds instead of 30.

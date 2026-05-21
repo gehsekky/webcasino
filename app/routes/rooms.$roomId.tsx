@@ -6,6 +6,7 @@ import { requireUser } from 'auth/guards.server';
 import { csrf, CSRFError } from 'auth/csrf.server';
 import {
   archiveRoom,
+  changeRoomMaxSeats,
   startHand,
   switchRoomGame,
   type RoomGameType,
@@ -293,6 +294,16 @@ export async function action({ request, params }: ActionFunctionArgs) {
   if (intent === 'archive_room') {
     await archiveRoom({ roomId, by: user });
     return redirect('/');
+  }
+
+  if (intent === 'change_max_seats') {
+    const raw = formData.get('maxSeats')?.toString() ?? '';
+    const parsed = parseInt(raw, 10);
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      throw new Response('invalid seat count', { status: 400 });
+    }
+    await changeRoomMaxSeats({ roomId, newMaxSeats: parsed, by: user });
+    return redirect(`/rooms/${roomId}`);
   }
 
   if (intent === 'rejoin_next_hand') {

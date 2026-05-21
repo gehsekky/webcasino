@@ -173,6 +173,76 @@ export async function switchRoomGame(params: {
 }
 
 /**
+ * Change the seat count at a room. Allowed only for the creator, only
+ * when no hand is in progress, and only when the new value satisfies
+ * the current game's seat range. Refuses to reduce below the number
+ * of seats currently occupied — the creator has to ask those players
+ * to leave first, or raise instead.
+ *
+ * For slots (range [1,1]) the only legal value is 1, so the UI hides
+ * the control; the server still enforces the bound defensively.
+ */
+export async function changeRoomMaxSeats(params: {
+  roomId: string;
+  newMaxSeats: number;
+  by: ActingUser;
+}): Promise<{ changed: boolean }> {
+  if (!Number.isInteger(params.newMaxSeats) || params.newMaxSeats < 1) {
+    throw new Response('newMaxSeats must be a positive integer', { status: 400 });
+  }
+
+  const room = await prisma.casino_table.findUnique({
+    where: { id: params.roomId },
+    include: {
+      hand: { orderBy: { created_at: 'desc' }, take: 1 },
+      seat: { select: { id: true } },
+    },
+  });
+  if (!room || room.archived_at !== null) {
+    throw new Response('room not found', { status: 404 });
+  }
+  if (room.created_by !== params.by.id) {
+    throw new Response('only the room creator can change the seat count', { status: 403 });
+  }
+  if (room.max_seats === params.newMaxSeats) {
+    return { changed: false };
+  }
+
+  const latest = room.hand[0];
+  const latestPhase = (latest?.data as { phase?: string } | undefined)?.phase;
+  if (latest && latestPhase !== 'settled') {
+    throw new Response('cannot change seats while a hand is in progress', { status: 409 });
+  }
+
+  const gameType = room.game_type as RoomGameType;
+  const range = GAME_SEAT_RANGES[gameType];
+  if (!range) {
+    throw new Response(`unsupported game type '${room.game_type}'`, { status: 500 });
+  }
+  if (params.newMaxSeats < range.min || params.newMaxSeats > range.max) {
+    throw new Response(
+      `${gameType} requires ${range.min}–${range.max} seats; got ${params.newMaxSeats}`,
+      { status: 409 },
+    );
+  }
+
+  // Refuse reducing below the seated count — explicit data loss prompt
+  // belongs in the UI (or a separate "remove seat" flow), not here.
+  if (params.newMaxSeats < room.seat.length) {
+    throw new Response(
+      `${room.seat.length} seats are currently occupied; cannot reduce below that`,
+      { status: 409 },
+    );
+  }
+
+  await prisma.casino_table.update({
+    where: { id: params.roomId },
+    data: { max_seats: params.newMaxSeats },
+  });
+  return { changed: true };
+}
+
+/**
  * Soft-delete a room. Creator-only. Refuses while a hand is in progress —
  * settle (or fold-around) first. Sets `archived_at` so the room is
  * filtered out of listings, join-token resolution, and the room view.
