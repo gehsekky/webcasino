@@ -33,6 +33,7 @@ function withDeck(deck: CardData[], overrides: Partial<BlackjackState> = {}): Bl
     ],
     phase: 'awaiting_bets',
     toAct: null,
+    turnDeadlineAt: null,
     ...overrides,
   };
 }
@@ -248,6 +249,7 @@ describe('blackjackEngine hit/stay/double/surrender', () => {
       ],
       phase: 'playing',
       toAct: 'p1',
+      turnDeadlineAt: null,
     };
   }
 
@@ -354,6 +356,7 @@ describe('blackjackEngine split', () => {
       ],
       phase: 'playing',
       toAct: 'p1',
+      turnDeadlineAt: null,
     };
   }
 
@@ -623,6 +626,7 @@ describe('blackjackEngine dealer soft 17 (H17 vs S17)', () => {
       ],
       phase: 'dealer',
       toAct: null,
+      turnDeadlineAt: null,
     };
   }
 
@@ -686,6 +690,7 @@ describe('blackjackEngine dealer_play', () => {
       ],
       phase: 'dealer',
       toAct: null,
+      turnDeadlineAt: null,
     };
     const next = blackjackEngine.applyAction(state, 'dealer', { kind: 'dealer_play' }, defaultRng);
     expect(next.dealerCardsRevealed).toBe(true);
@@ -713,6 +718,7 @@ describe('blackjackEngine dealer_play', () => {
       ],
       phase: 'dealer',
       toAct: null,
+      turnDeadlineAt: null,
     };
     const next = blackjackEngine.applyAction(state, 'dealer', { kind: 'dealer_play' }, defaultRng);
     expect(next.players[0].status).toBe('lost');
@@ -738,6 +744,7 @@ describe('blackjackEngine dealer_play', () => {
       ],
       phase: 'dealer',
       toAct: null,
+      turnDeadlineAt: null,
     };
     const next = blackjackEngine.applyAction(state, 'dealer', { kind: 'dealer_play' }, defaultRng);
     expect(next.players[0].status).toBe('pushed');
@@ -767,6 +774,7 @@ describe('blackjackEngine.settle', () => {
       ],
       phase: 'settled',
       toAct: null,
+      turnDeadlineAt: null,
     };
   }
 
@@ -841,6 +849,7 @@ describe('blackjackEngine chip conservation invariant', () => {
       ],
       phase: 'settled',
       toAct: null,
+      turnDeadlineAt: null,
     };
     const orders = blackjackEngine.settle(state);
     const sum = orders.reduce((s, o) => s + o.delta, 0);

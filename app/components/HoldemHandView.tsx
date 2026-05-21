@@ -78,6 +78,7 @@ export default function HoldemHandView({
                 isToAct={view.toAct === p.id}
                 ownerName={ownerName}
                 ownerIsAi={ownerIsAi}
+                turnDeadlineAt={view.turnDeadlineAt}
               />
             );
           })}

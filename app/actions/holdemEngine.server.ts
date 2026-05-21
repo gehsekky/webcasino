@@ -7,6 +7,11 @@ import type { HoldemAction, HoldemState } from 'engines/poker/holdem/types';
 import { defaultRng } from 'engines/rng';
 import { appendHandEvent, HAND_INITIALIZED } from 'lib/handEvents';
 import { broadcastBus, type BroadcastedHandEvent } from 'lib/broadcastBus.server';
+import {
+  computeTurnDeadline,
+  handAdvisoryLockKey,
+  turnDeadlineService,
+} from 'lib/turnDeadlineService.server';
 import type { HandParticipant } from './handEngine.server';
 
 /**
@@ -56,22 +61,27 @@ export async function startHoldemHand(params: {
   const userById = new Map(users.map((u) => [u.id, u]));
 
   const pendingBroadcasts: BroadcastedHandEvent[] = [];
+  let finalInitialState: HoldemState | null = null;
+  let resultHandId = '';
 
   const result = await prisma.$transaction(async (tx) => {
     const handId = randomUUID();
+    resultHandId = handId;
     const handSeatIds = params.participants.map(() => randomUUID());
     const playerIds = handSeatIds;
 
     const stacks: Record<string, number> = {};
+    const slotIsAi = new Map<string, boolean>();
     for (let i = 0; i < params.participants.length; i++) {
       const p = params.participants[i];
       const u = userById.get(p.userId);
       if (!u) throw new Error(`startHoldemHand: user ${p.userId} not found`);
       const buyIn = u.is_ai ? cfg.maximumBuyIn : Math.min(u.money, cfg.maximumBuyIn);
       stacks[handSeatIds[i]] = buyIn;
+      slotIsAi.set(handSeatIds[i], u.is_ai);
     }
 
-    const initialState = holdemEngine.initialState(
+    let initialState = holdemEngine.initialState(
       {
         smallBlind: cfg.smallBlind,
         bigBlind: cfg.bigBlind,
@@ -81,6 +91,14 @@ export async function startHoldemHand(params: {
       playerIds,
       defaultRng,
     );
+    initialState = {
+      ...initialState,
+      turnDeadlineAt: computeTurnDeadline({
+        toAct: initialState.toAct,
+        isHuman: (slotId) => slotIsAi.get(slotId) === false,
+      }),
+    };
+    finalInitialState = initialState;
 
     await tx.hand.create({
       data: {
@@ -142,6 +160,9 @@ export async function startHoldemHand(params: {
   for (const ev of pendingBroadcasts) {
     broadcastBus.publish(result.handId, ev);
   }
+  if (finalInitialState) {
+    rearmHoldemDeadline(resultHandId, finalInitialState);
+  }
   return result;
 }
 
@@ -151,6 +172,7 @@ export async function submitHoldemAction(params: {
 }): Promise<void> {
   const pendingBroadcasts: BroadcastedHandEvent[] = [];
   let handIdForBroadcast = '';
+  let finalState: HoldemState | null = null;
 
   await prisma.$transaction(async (tx) => {
     const handSeat = await tx.hand_seat.findUnique({
@@ -161,6 +183,8 @@ export async function submitHoldemAction(params: {
       throw new Error('holdemEngine: hand_seat not found');
     }
     handIdForBroadcast = handSeat.hand_id;
+
+    await acquireHoldemHandLock(tx, handSeat.hand_id);
 
     let state = parseState(handSeat.hand.data);
     if (state.toAct !== params.handSeatId) {
@@ -235,7 +259,15 @@ export async function submitHoldemAction(params: {
       }
     }
 
-    // 4. Persist.
+    // 4. Stamp turn deadline + persist.
+    state = {
+      ...state,
+      turnDeadlineAt: computeTurnDeadline({
+        toAct: state.toAct,
+        isHuman: (slotId) => userMap.get(slotId)?.is_ai === false,
+      }),
+    };
+    finalState = state;
     await tx.hand.update({
       where: { id: handSeat.hand_id },
       data: { data: state as unknown as Prisma.JsonObject },
@@ -244,6 +276,9 @@ export async function submitHoldemAction(params: {
 
   for (const ev of pendingBroadcasts) {
     broadcastBus.publish(handIdForBroadcast, ev);
+  }
+  if (finalState) {
+    rearmHoldemDeadline(handIdForBroadcast, finalState);
   }
 }
 
@@ -323,5 +358,124 @@ export function parseHoldemActionFromForm(
     }
     default:
       throw new Error(`unknown holdem submit value: ${submitValue}`);
+  }
+}
+
+async function acquireHoldemHandLock(tx: PrismaTransactionClient, handId: string): Promise<void> {
+  const key = handAdvisoryLockKey(handId);
+  await tx.$queryRawUnsafe<unknown[]>(`SELECT pg_advisory_xact_lock(${key.toString()})`);
+}
+
+function rearmHoldemDeadline(handId: string, state: HoldemState): void {
+  const deadline = state.turnDeadlineAt;
+  if (!deadline) {
+    turnDeadlineService.cancel(handId);
+    return;
+  }
+  turnDeadlineService.arm(handId, new Date(deadline), () => fireHoldemTurnTimeout(handId));
+}
+
+/**
+ * Server-side timeout handler for Texas Hold'em. Engine's aiAction is
+ * the passive "check or fold" pick.
+ */
+export async function fireHoldemTurnTimeout(handId: string): Promise<void> {
+  const pendingBroadcasts: BroadcastedHandEvent[] = [];
+  let finalState: HoldemState | null = null;
+
+  await prisma.$transaction(async (tx) => {
+    await acquireHoldemHandLock(tx, handId);
+    const hand = await tx.hand.findUnique({ where: { id: handId } });
+    if (!hand) return;
+    const state = parseState(hand.data);
+    if (state.toAct === null || !state.turnDeadlineAt) return;
+    if (Date.now() < new Date(state.turnDeadlineAt).getTime()) {
+      finalState = state;
+      return;
+    }
+    const userMap = await buildUserMap(
+      tx,
+      state.players.map((p) => p.id),
+    );
+    if (userMap.get(state.toAct)?.is_ai !== false) return;
+
+    const acting = state.toAct;
+    const auto = holdemEngine.aiAction!(state, acting, defaultRng);
+    let cursor = holdemEngine.applyAction(state, acting, auto, defaultRng);
+    await applyDiffs(state, cursor, userMap, tx, auto.kind);
+    const seq = await appendHandEvent(
+      handId,
+      { action: auto.kind, actorId: acting, payload: { ...auto, timedOut: true } },
+      tx,
+    );
+    pendingBroadcasts.push({
+      action: auto.kind,
+      actor_id: acting,
+      payload: { ...auto, timedOut: true },
+      sequence: seq,
+      state_after: cursor as unknown as never,
+    });
+
+    const isAI = (slotId: string) => userMap.get(slotId)?.is_ai === true;
+    while (!holdemEngine.isTerminal(cursor) && cursor.toAct !== null && isAI(cursor.toAct)) {
+      const aiActing = cursor.toAct;
+      const before = cursor;
+      const aiAction = holdemEngine.aiAction!(cursor, aiActing, defaultRng);
+      cursor = holdemEngine.applyAction(cursor, aiActing, aiAction, defaultRng);
+      await applyDiffs(before, cursor, userMap, tx, aiAction.kind);
+      const aiSeq = await appendHandEvent(
+        handId,
+        { action: aiAction.kind, actorId: aiActing, payload: aiAction },
+        tx,
+      );
+      pendingBroadcasts.push({
+        action: aiAction.kind,
+        actor_id: aiActing,
+        payload: aiAction,
+        sequence: aiSeq,
+        state_after: cursor as unknown as never,
+      });
+    }
+
+    if (holdemEngine.isTerminal(cursor)) {
+      for (const order of holdemEngine.settle(cursor)) {
+        const slot = cursor.players.find((p) => p.id === order.playerId);
+        if (!slot) continue;
+        const credit = slot.totalBet + order.delta;
+        if (credit <= 0) continue;
+        const u = userMap.get(slot.id);
+        if (!u) continue;
+        await recordMoneyTransaction(
+          {
+            userId: u.id,
+            type: 'credit',
+            amount: credit,
+            gamePlayerId: slot.id,
+            note: `settle:${order.reason}`,
+          },
+          tx,
+        );
+      }
+    }
+
+    cursor = {
+      ...cursor,
+      turnDeadlineAt: computeTurnDeadline({
+        toAct: cursor.toAct,
+        isHuman: (slotId) => userMap.get(slotId)?.is_ai === false,
+      }),
+    };
+    finalState = cursor;
+    await tx.hand.update({
+      where: { id: handId },
+      data: { data: cursor as unknown as Prisma.JsonObject },
+    });
+  });
+
+  for (const ev of pendingBroadcasts) {
+    broadcastBus.publish(handId, ev);
+  }
+  if (finalState) {
+    rearmHoldemDeadline(handId, finalState);
   }
 }

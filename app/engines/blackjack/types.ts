@@ -35,6 +35,12 @@ export type BlackjackView = {
   players: PlayerSlot[];
   phase: Phase;
   toAct: string | null;
+  /**
+   * ISO timestamp when the current human seat's turn auto-folds. `null`
+   * when no one is on the clock (toAct is null or AI). Clients render
+   * this as a countdown badge.
+   */
+  turnDeadlineAt: string | null;
   /** Actions legal for this viewer. */
   legalActions: BlackjackAction[];
 };

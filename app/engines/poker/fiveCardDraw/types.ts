@@ -58,6 +58,13 @@ export type FiveCardDrawState = {
   phase: Phase;
   /** id of the player whose turn it is, or null when no one is acting. */
   toAct: string | null;
+  /**
+   * ISO timestamp by which the current human seat must act before the
+   * server applies an auto-action on their behalf. Null when no one is
+   * on the clock (toAct is null or AI). Wrapper-managed; engines carry
+   * it through.
+   */
+  turnDeadlineAt?: string | null;
   /** Highest bet anyone has placed this round. 0 → checks are legal. */
   currentBet: number;
   /** Minimum legal next-raise size. */
@@ -119,6 +126,8 @@ export type FiveCardDrawView = {
   players: PlayerView[];
   phase: Phase;
   toAct: string | null;
+  /** Auto-fold deadline for the current human seat. Null when no clock. */
+  turnDeadlineAt: string | null;
   pot: PotSnapshot;
   legalActions: FiveCardDrawAction[];
 };

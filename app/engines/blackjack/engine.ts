@@ -168,6 +168,9 @@ export const blackjackEngine: GameEngine<
       players,
       phase: 'awaiting_bets',
       toAct: null,
+      // Server wrapper sets a real deadline when toAct resolves to a human;
+      // engines only carry the field through.
+      turnDeadlineAt: null,
     };
     initial.toAct = firstPendingBet(initial);
     return initial;
@@ -432,6 +435,7 @@ export const blackjackEngine: GameEngine<
       players: cloned.players,
       phase: cloned.phase,
       toAct: cloned.toAct,
+      turnDeadlineAt: cloned.turnDeadlineAt ?? null,
       legalActions,
     };
   },

@@ -96,6 +96,7 @@ export default function HandView({
                 isToAct={view.toAct === player.id}
                 ownerName={ownerName}
                 ownerIsAi={ownerIsAi}
+                turnDeadlineAt={view.turnDeadlineAt}
                 handLabel={isViewer && hasSplit ? `Hand ${ownedIdx + 1}` : undefined}
               />
             );

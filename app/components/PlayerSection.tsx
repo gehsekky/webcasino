@@ -1,6 +1,7 @@
 import type { PlayerSlot } from 'lib/gameState';
 import PlayingCard from './PlayingCard';
 import Avatar from './Avatar';
+import TurnTimer from './TurnTimer';
 import { handTotal } from 'lib/handMath';
 
 type PlayerSectionProps = {
@@ -11,6 +12,12 @@ type PlayerSectionProps = {
   ownerName: string;
   /** True when the slot's owner is a synthetic AI user. */
   ownerIsAi: boolean;
+  /**
+   * Auto-fold deadline for the seat currently on the clock. Passed in
+   * from the view; combined with `isToAct` to decide whether to render
+   * the countdown badge.
+   */
+  turnDeadlineAt: string | null;
   /** When set (after a split), suffix shown next to the player name (e.g. "Hand 1"). */
   handLabel?: string;
 };
@@ -45,6 +52,7 @@ export default function PlayerSection({
   isToAct,
   ownerName,
   ownerIsAi,
+  turnDeadlineAt,
   handLabel,
 }: PlayerSectionProps) {
   const total = player.cards.length > 0 ? handTotal(player.cards) : null;
@@ -81,6 +89,7 @@ export default function PlayerSection({
             </p>
           )}
           <div className="mt-1 flex items-center gap-2">
+            <TurnTimer deadlineAt={turnDeadlineAt} active={isToAct} />
             <span
               className={`text-[10px] font-semibold uppercase tracking-wide rounded-full px-1.5 py-0.5 ${statusClass}`}
             >

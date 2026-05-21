@@ -83,6 +83,7 @@ export default function PokerHandView({
                 isToAct={view.toAct === p.id}
                 ownerName={ownerName}
                 ownerIsAi={ownerIsAi}
+                turnDeadlineAt={view.turnDeadlineAt}
               />
             );
           })}

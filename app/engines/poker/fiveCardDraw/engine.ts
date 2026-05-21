@@ -504,6 +504,7 @@ export const fiveCardDrawEngine: GameEngine<
       players,
       phase: state.phase,
       toAct: state.toAct,
+      turnDeadlineAt: state.turnDeadlineAt ?? null,
       pot,
       legalActions,
     };

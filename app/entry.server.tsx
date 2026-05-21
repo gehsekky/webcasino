@@ -11,8 +11,25 @@ import { createReadableStreamFromReadable } from '@remix-run/node';
 import { RemixServer } from '@remix-run/react';
 import { isbot } from 'isbot';
 import { renderToPipeableStream } from 'react-dom/server';
+import { reconcileTurnDeadlines } from 'lib/turnDeadlineBoot.server';
 
 const ABORT_DELAY = 5_000;
+
+// One-shot at server startup: re-arm in-process turn-deadline timers
+// for hands that were mid-turn when the process last stopped. Past-due
+// deadlines fire on the next tick. Guarded by a module-level flag so a
+// HMR reload (in dev) doesn't re-arm timers we already have.
+declare global {
+  // eslint-disable-next-line no-var
+  var __turnDeadlineBooted: boolean | undefined;
+}
+if (!globalThis.__turnDeadlineBooted) {
+  globalThis.__turnDeadlineBooted = true;
+  void reconcileTurnDeadlines().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error('[entry.server] reconcileTurnDeadlines failed:', err);
+  });
+}
 
 export default function handleRequest(
   request: Request,

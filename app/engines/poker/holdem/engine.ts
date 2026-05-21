@@ -521,6 +521,7 @@ export const holdemEngine: GameEngine<HoldemState, HoldemAction, HoldemView, Hol
       community: state.community.map((c) => ({ ...c })),
       phase: state.phase,
       toAct: state.toAct,
+      turnDeadlineAt: state.turnDeadlineAt ?? null,
       pot,
       legalActions,
       dealerIdx: state.dealerIdx,

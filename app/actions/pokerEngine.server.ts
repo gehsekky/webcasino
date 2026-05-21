@@ -7,6 +7,11 @@ import type { FiveCardDrawAction, FiveCardDrawState } from 'engines/poker/fiveCa
 import { defaultRng } from 'engines/rng';
 import { appendHandEvent, HAND_INITIALIZED } from 'lib/handEvents';
 import { broadcastBus, type BroadcastedHandEvent } from 'lib/broadcastBus.server';
+import {
+  computeTurnDeadline,
+  handAdvisoryLockKey,
+  turnDeadlineService,
+} from 'lib/turnDeadlineService.server';
 import type { HandParticipant } from './handEngine.server';
 import { runAiCascade } from 'engines/aiRunner';
 
@@ -62,27 +67,40 @@ export async function startPokerHand(params: {
   const userById = new Map(users.map((u) => [u.id, u]));
 
   const pendingBroadcasts: BroadcastedHandEvent[] = [];
+  let finalInitialState: FiveCardDrawState | null = null;
+  let resultHandId = '';
 
   const result = await prisma.$transaction(async (tx) => {
     const handId = randomUUID();
+    resultHandId = handId;
     const handSeatIds = params.participants.map(() => randomUUID());
     const playerIds = handSeatIds;
 
     // Stacks per participant in position order.
     const stacks: Record<string, number> = {};
+    const slotIsAi = new Map<string, boolean>();
     for (let i = 0; i < params.participants.length; i++) {
       const p = params.participants[i];
       const u = userById.get(p.userId);
       if (!u) throw new Error(`startPokerHand: user ${p.userId} not found`);
       const buyIn = u.is_ai ? cfg.maximumBuyIn : Math.min(u.money, cfg.maximumBuyIn);
       stacks[handSeatIds[i]] = buyIn;
+      slotIsAi.set(handSeatIds[i], u.is_ai);
     }
 
-    const initialState = fiveCardDrawEngine.initialState(
+    let initialState = fiveCardDrawEngine.initialState(
       { ante: cfg.ante, minBet: cfg.minBet, stacks },
       playerIds,
       defaultRng,
     );
+    initialState = {
+      ...initialState,
+      turnDeadlineAt: computeTurnDeadline({
+        toAct: initialState.toAct,
+        isHuman: (slotId) => slotIsAi.get(slotId) === false,
+      }),
+    };
+    finalInitialState = initialState;
 
     await tx.hand.create({
       data: {
@@ -141,6 +159,9 @@ export async function startPokerHand(params: {
   for (const ev of pendingBroadcasts) {
     broadcastBus.publish(result.handId, ev);
   }
+  if (finalInitialState) {
+    rearmPokerDeadline(resultHandId, finalInitialState);
+  }
   return result;
 }
 
@@ -154,6 +175,7 @@ export async function submitPokerAction(params: {
 }): Promise<void> {
   const pendingBroadcasts: BroadcastedHandEvent[] = [];
   let handIdForBroadcast = '';
+  let finalState: FiveCardDrawState | null = null;
 
   await prisma.$transaction(async (tx) => {
     const handSeat = await tx.hand_seat.findUnique({
@@ -164,6 +186,8 @@ export async function submitPokerAction(params: {
       throw new Error('pokerEngine: hand_seat not found');
     }
     handIdForBroadcast = handSeat.hand_id;
+
+    await acquirePokerHandLock(tx, handSeat.hand_id);
 
     let state = parseState(handSeat.hand.data);
     if (state.toAct !== params.handSeatId) {
@@ -238,7 +262,15 @@ export async function submitPokerAction(params: {
       }
     }
 
-    // 4. Persist new engine state.
+    // 4. Stamp turn deadline + persist.
+    state = {
+      ...state,
+      turnDeadlineAt: computeTurnDeadline({
+        toAct: state.toAct,
+        isHuman: (slotId) => userMap.get(slotId)?.is_ai === false,
+      }),
+    };
+    finalState = state;
     await tx.hand.update({
       where: { id: handSeat.hand_id },
       data: { data: state as unknown as Prisma.JsonObject },
@@ -247,6 +279,9 @@ export async function submitPokerAction(params: {
 
   for (const ev of pendingBroadcasts) {
     broadcastBus.publish(handIdForBroadcast, ev);
+  }
+  if (finalState) {
+    rearmPokerDeadline(handIdForBroadcast, finalState);
   }
 }
 
@@ -355,3 +390,127 @@ export function parsePokerActionFromForm(
 }
 
 void runAiCascade; // exported as an indirect smoke import — keeps the file's intent obvious.
+
+/** Per-hand tx-scoped advisory lock, same pattern as handEngine. */
+async function acquirePokerHandLock(tx: PrismaTransactionClient, handId: string): Promise<void> {
+  const key = handAdvisoryLockKey(handId);
+  await tx.$queryRawUnsafe<unknown[]>(`SELECT pg_advisory_xact_lock(${key.toString()})`);
+}
+
+function rearmPokerDeadline(handId: string, state: FiveCardDrawState): void {
+  const deadline = state.turnDeadlineAt;
+  if (!deadline) {
+    turnDeadlineService.cancel(handId);
+    return;
+  }
+  turnDeadlineService.arm(handId, new Date(deadline), () => firePokerTurnTimeout(handId));
+}
+
+/**
+ * Server-side timeout handler for 5-Card Draw. Reuses
+ * `fiveCardDrawEngine.aiAction` for the passive auto-action (fold or
+ * check, depending on owed). Same advisory-lock + recheck-deadline
+ * pattern as the blackjack handler.
+ */
+export async function firePokerTurnTimeout(handId: string): Promise<void> {
+  const pendingBroadcasts: BroadcastedHandEvent[] = [];
+  let finalState: FiveCardDrawState | null = null;
+
+  await prisma.$transaction(async (tx) => {
+    await acquirePokerHandLock(tx, handId);
+    const hand = await tx.hand.findUnique({ where: { id: handId } });
+    if (!hand) return;
+    const state = parseState(hand.data);
+    if (state.toAct === null || !state.turnDeadlineAt) return;
+    if (Date.now() < new Date(state.turnDeadlineAt).getTime()) {
+      finalState = state; // re-arm
+      return;
+    }
+    const userMap = await buildUserMap(
+      tx,
+      state.players.map((p) => p.id),
+    );
+    if (userMap.get(state.toAct)?.is_ai !== false) return; // not a human on the clock
+
+    const acting = state.toAct;
+    const auto = fiveCardDrawEngine.aiAction!(state, acting, defaultRng);
+    let cursor = fiveCardDrawEngine.applyAction(state, acting, auto, defaultRng);
+    await applyDiffs(state, cursor, userMap, tx, auto.kind);
+    const seq = await appendHandEvent(
+      handId,
+      { action: auto.kind, actorId: acting, payload: { ...auto, timedOut: true } },
+      tx,
+    );
+    pendingBroadcasts.push({
+      action: auto.kind,
+      actor_id: acting,
+      payload: { ...auto, timedOut: true },
+      sequence: seq,
+      state_after: cursor as unknown as never,
+    });
+
+    // Continue the AI cascade.
+    const isAI = (slotId: string) => userMap.get(slotId)?.is_ai === true;
+    while (!fiveCardDrawEngine.isTerminal(cursor) && cursor.toAct !== null && isAI(cursor.toAct)) {
+      const aiActing = cursor.toAct;
+      const before = cursor;
+      const aiAction = fiveCardDrawEngine.aiAction!(cursor, aiActing, defaultRng);
+      cursor = fiveCardDrawEngine.applyAction(cursor, aiActing, aiAction, defaultRng);
+      await applyDiffs(before, cursor, userMap, tx, aiAction.kind);
+      const aiSeq = await appendHandEvent(
+        handId,
+        { action: aiAction.kind, actorId: aiActing, payload: aiAction },
+        tx,
+      );
+      pendingBroadcasts.push({
+        action: aiAction.kind,
+        actor_id: aiActing,
+        payload: aiAction,
+        sequence: aiSeq,
+        state_after: cursor as unknown as never,
+      });
+    }
+
+    // Settlement.
+    if (fiveCardDrawEngine.isTerminal(cursor)) {
+      for (const order of fiveCardDrawEngine.settle(cursor)) {
+        const slot = cursor.players.find((p) => p.id === order.playerId);
+        if (!slot) continue;
+        const credit = slot.totalBet + order.delta;
+        if (credit <= 0) continue;
+        const u = userMap.get(slot.id);
+        if (!u) continue;
+        await recordMoneyTransaction(
+          {
+            userId: u.id,
+            type: 'credit',
+            amount: credit,
+            gamePlayerId: slot.id,
+            note: `settle:${order.reason}`,
+          },
+          tx,
+        );
+      }
+    }
+
+    cursor = {
+      ...cursor,
+      turnDeadlineAt: computeTurnDeadline({
+        toAct: cursor.toAct,
+        isHuman: (slotId) => userMap.get(slotId)?.is_ai === false,
+      }),
+    };
+    finalState = cursor;
+    await tx.hand.update({
+      where: { id: handId },
+      data: { data: cursor as unknown as Prisma.JsonObject },
+    });
+  });
+
+  for (const ev of pendingBroadcasts) {
+    broadcastBus.publish(handId, ev);
+  }
+  if (finalState) {
+    rearmPokerDeadline(handId, finalState);
+  }
+}

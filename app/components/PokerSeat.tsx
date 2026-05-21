@@ -3,6 +3,7 @@ import type { ActorStatus } from 'engines/poker/shared/bettingRound';
 import { CATEGORY_LABEL, type HandRank } from 'engines/poker/shared/types';
 import PlayingCard from './PlayingCard';
 import Avatar from './Avatar';
+import TurnTimer from './TurnTimer';
 
 /**
  * Structural seat shape. Shared between 5-card draw and Hold'em (and any
@@ -28,6 +29,8 @@ type PokerSeatProps = {
   ownerName: string;
   /** True when the seat's owner is a synthetic AI user. */
   ownerIsAi: boolean;
+  /** Auto-fold deadline for whichever seat is on the clock. */
+  turnDeadlineAt?: string | null;
 };
 
 const STATUS_LABEL: Record<ActorStatus, string> = {
@@ -48,6 +51,7 @@ export default function PokerSeat({
   isToAct,
   ownerName,
   ownerIsAi,
+  turnDeadlineAt,
 }: PokerSeatProps) {
   const isMasked = !isViewer && player.cards.length > 0 && player.cards[0].suit === 'hidden';
   const showRank = !isMasked && player.rank;
@@ -77,6 +81,7 @@ export default function PokerSeat({
             )}
           </h3>
           <div className="mt-1 flex items-center gap-2">
+            <TurnTimer deadlineAt={turnDeadlineAt ?? null} active={isToAct} />
             <span
               className={`text-[10px] font-semibold uppercase tracking-wide rounded-full px-1.5 py-0.5 ${STATUS_CLASS[player.status]}`}
             >

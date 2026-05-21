@@ -90,6 +90,16 @@ export const BlackjackStateSchema = z.object({
   players: z.array(PlayerSlotSchema),
   phase: PhaseSchema,
   toAct: z.string().nullable(),
+  /**
+   * ISO timestamp by which the current human seat must act before the
+   * server applies an auto-action on their behalf. `null` when no one
+   * is on the clock (round closed, settled, or `toAct` is an AI seat).
+   * Wrapper computes this; engines just carry it through.
+   *
+   * Defaults to null so hands persisted before this field was added
+   * still parse cleanly.
+   */
+  turnDeadlineAt: z.string().nullable().default(null),
 });
 export type BlackjackState = z.infer<typeof BlackjackStateSchema>;
 
