@@ -499,7 +499,14 @@ export async function firePokerTurnTimeout(handId: string): Promise<void> {
     if (userMap.get(state.toAct)?.is_ai !== false) return; // not a human on the clock
 
     const acting = state.toAct;
-    const auto = fiveCardDrawEngine.aiAction!(state, acting, defaultRng);
+    // 5cd timeouts fold during the two betting rounds — same reasoning
+    // as Hold'em (don't let a walked-away player call into a live bet).
+    // During the draw phase, fold isn't legal; stand pat (discard
+    // nothing) instead so the round can advance.
+    const auto: FiveCardDrawAction =
+      state.phase === 'draw'
+        ? { kind: 'discard', playerId: acting, indices: [] }
+        : { kind: 'fold', playerId: acting };
     let cursor = fiveCardDrawEngine.applyAction(state, acting, auto, defaultRng);
     await applyDiffs(state, cursor, userMap, tx, auto.kind);
     const seq = await appendHandEvent(
