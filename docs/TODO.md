@@ -167,7 +167,7 @@ wiring) versus what can land independently of hosting choices.
 
 ### Independent of hosting
 
-- [ ] **Healthcheck endpoint.** `/healthz` returns 200 + DB ping. Required by every orchestrator (k8s probes, Fly checks, ALB targets).
+- [x] **Healthcheck endpoint.** `/healthz` returns 200 + DB ping (or 503 + error message). JSON body so logs can show "what failed."
 - [ ] **Graceful shutdown.** Trap `SIGTERM`, drain active SSE connections, close Prisma, exit. `dumb-init` is already in the Dockerfile to forward the signal; the app side still needs the handler.
 - [ ] **Structured logs.** Replace `console.*` with `pino` (or similar) emitting JSON. Per-request log includes `req_id`, `user_id`, `route`, `latency_ms`. Required for shipping to a log aggregator.
 - [ ] **Error reporting.** Sentry (or Bugsnag / Rollbar) wired into Remix's `ErrorBoundary` + server `entry.server.tsx`. Need a project + DSN in secrets.
